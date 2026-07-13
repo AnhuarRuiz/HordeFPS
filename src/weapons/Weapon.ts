@@ -34,6 +34,9 @@ export class Weapon {
   private muzzleFlashTimer = 0;
   private recoil = 0;
   private basePosition: THREE.Vector3;
+  private slide!: THREE.Mesh;
+  private slideRestZ = 0;
+  private magGroup!: THREE.Group;
 
   constructor(camera: THREE.PerspectiveCamera) {
     this.camera = camera;
@@ -110,6 +113,8 @@ export class Weapon {
     const slide = new THREE.Mesh(new THREE.BoxGeometry(slideW, slideH, slideD), steel);
     slide.position.set(0, slideY, slideZ);
     gun.add(slide);
+    this.slide = slide;
+    this.slideRestZ = slideZ;
     const slideTop = slideY + slideH / 2;
     const slideFront = slideZ - slideD / 2;
     const slideBack = slideZ + slideD / 2;
@@ -183,9 +188,17 @@ export class Weapon {
       gripPivot.add(stipple);
     }
 
-    const magBase = new THREE.Mesh(new THREE.BoxGeometry(gripW + 0.006, 0.012, gripD + 0.006), darkSteel);
+    // Magazine as its own group so it can drop out and be swapped during
+    // reload. Lighter steel so the drop reads against the dark grip.
+    const magGroup = new THREE.Group();
+    const magBody = new THREE.Mesh(new THREE.BoxGeometry(gripW - 0.004, gripH * 0.95, gripD - 0.006), steel);
+    magBody.position.set(0, -gripH / 2, 0);
+    magGroup.add(magBody);
+    const magBase = new THREE.Mesh(new THREE.BoxGeometry(gripW + 0.008, 0.014, gripD + 0.008), darkSteel);
     magBase.position.set(0, -gripH - 0.004, 0);
-    gripPivot.add(magBase);
+    magGroup.add(magBase);
+    gripPivot.add(magGroup);
+    this.magGroup = magGroup;
 
     const flashMat = new THREE.MeshBasicMaterial({ color: 0xffcf6b, transparent: true, opacity: 0 });
     this.muzzleFlash = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.15, 8), flashMat);
@@ -243,6 +256,33 @@ export class Weapon {
     return { object: hit.object, point: hit.point, distance: hit.distance };
   }
 
+  // Pistol reload, two visible beats: (1) tilt down and swap the magazine,
+  // (2) tug the gun up while the slide racks hard (the slide sits on top, so
+  // it reads clearly even though the hand hides the mag). `p` runs 0→1.
+  private applyReloadPose(p: number) {
+    const env = p < 0.12 ? p / 0.12 : p > 0.88 ? Math.max(0, (1 - p) / 0.12) : 1;
+    // Rack beat: a 0→1→0 hump over 0.60–0.82.
+    const rack = p > 0.6 && p < 0.82 ? Math.sin(((p - 0.6) / 0.22) * Math.PI) : 0;
+
+    this.viewModel.position.set(
+      this.basePosition.x - 0.04 * env,
+      this.basePosition.y - 0.08 * env + 0.035 * rack,
+      this.basePosition.z + 0.04 * env,
+    );
+    // Muzzle up and mag well rolled toward the viewer; the rack jerks it up.
+    this.viewModel.rotation.set(0.45 * env - 0.18 * rack, 0.28 * env, 0.45 * env);
+
+    // Old mag drops out (0.18–0.40); a fresh one rides back up (0.44–0.60).
+    let magY = 0;
+    if (p >= 0.18 && p < 0.4) magY = -0.3 * ((p - 0.18) / 0.22);
+    else if (p >= 0.4 && p < 0.44) magY = -0.3;
+    else if (p >= 0.44 && p < 0.6) magY = -0.3 * (1 - (p - 0.44) / 0.16);
+    this.magGroup.position.y = magY;
+
+    // Slide racks with the second beat: pulled back, then snaps forward.
+    this.slide.position.z = this.slideRestZ + rack * 0.11;
+  }
+
   update(dt: number) {
     if (this.cooldown > 0) this.cooldown = Math.max(0, this.cooldown - dt);
 
@@ -257,12 +297,19 @@ export class Weapon {
       }
     }
 
-    this.recoil = Math.max(0, this.recoil - RECOIL_RECOVERY * dt * this.recoil);
-    this.viewModel.position.set(
-      this.basePosition.x,
-      this.basePosition.y + this.recoil * 0.4,
-      this.basePosition.z + this.recoil,
-    );
+    if (this.isReloading) {
+      this.applyReloadPose(1 - this.reloadTimer / RELOAD_TIME);
+    } else {
+      this.recoil = Math.max(0, this.recoil - RECOIL_RECOVERY * dt * this.recoil);
+      this.viewModel.position.set(
+        this.basePosition.x,
+        this.basePosition.y + this.recoil * 0.4,
+        this.basePosition.z + this.recoil,
+      );
+      this.viewModel.rotation.set(0, 0, 0);
+      this.magGroup.position.y = 0;
+      this.slide.position.z = this.slideRestZ;
+    }
 
     if (this.muzzleFlashTimer > 0) {
       this.muzzleFlashTimer -= dt;

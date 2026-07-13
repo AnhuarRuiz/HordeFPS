@@ -4,6 +4,7 @@ import { buildArena } from './world/Arena.ts';
 import { FirstPersonController } from './player/FirstPersonController.ts';
 import { MobileControls, isMobileDevice } from './player/MobileControls.ts';
 import { Weapon } from './weapons/Weapon.ts';
+import { Rifle } from './weapons/Rifle.ts';
 import { Knife } from './weapons/Knife.ts';
 import { WaveManager } from './systems/WaveManager.ts';
 import { Hud } from './ui/Hud.ts';
@@ -66,15 +67,18 @@ const controller = new FirstPersonController(
 );
 
 const weapon = new Weapon(camera);
+const rifle = new Rifle(camera);
 const knife = new Knife(camera);
 const waveManager = new WaveManager(scene, arena.spawnPoints, arena.collisionBoxes, () => {});
 
-type WeaponSlot = 'pistol' | 'knife';
+type WeaponSlot = 'pistol' | 'rifle' | 'knife';
+const WEAPON_CYCLE: WeaponSlot[] = ['pistol', 'rifle', 'knife'];
 let activeSlot: WeaponSlot = 'pistol';
 
 function setActiveSlot(slot: WeaponSlot) {
   activeSlot = slot;
   weapon.setActive(slot === 'pistol');
+  rifle.setActive(slot === 'rifle');
   knife.setActive(slot === 'knife');
 }
 setActiveSlot('pistol');
@@ -95,8 +99,10 @@ const mobileControls = mobile
       onJumpEnd: () => controller.release('Space'),
       onReload: () => {
         if (activeSlot === 'pistol') weapon.tryReload();
+        else if (activeSlot === 'rifle') rifle.tryReload();
       },
-      onSwitchWeapon: () => setActiveSlot(activeSlot === 'pistol' ? 'knife' : 'pistol'),
+      onSwitchWeapon: () =>
+        setActiveSlot(WEAPON_CYCLE[(WEAPON_CYCLE.indexOf(activeSlot) + 1) % WEAPON_CYCLE.length]),
     })
   : null;
 
@@ -121,9 +127,13 @@ window.addEventListener('mouseup', (e) => {
   if (e.button === 0) isMouseDown = false;
 });
 window.addEventListener('keydown', (e) => {
-  if (e.code === 'KeyR' && activeSlot === 'pistol') weapon.tryReload();
+  if (e.code === 'KeyR') {
+    if (activeSlot === 'pistol') weapon.tryReload();
+    else if (activeSlot === 'rifle') rifle.tryReload();
+  }
   if (e.code === 'Digit1') setActiveSlot('pistol');
-  if (e.code === 'Digit2') setActiveSlot('knife');
+  if (e.code === 'Digit2') setActiveSlot('rifle');
+  if (e.code === 'Digit3') setActiveSlot('knife');
 });
 window.addEventListener('contextmenu', (e) => e.preventDefault());
 window.addEventListener('resize', syncViewportSize);
@@ -147,16 +157,25 @@ function animate() {
     controller.update(dt);
 
     if (isMouseDown) {
-      const hit =
-        activeSlot === 'pistol'
-          ? weapon.fire(waveManager.raycastTargets)
-          : knife.swing(waveManager.raycastTargets);
+      let hit = null;
+      let damage = 0;
+      if (activeSlot === 'pistol') {
+        hit = weapon.fire(waveManager.raycastTargets);
+        damage = weapon.damage;
+      } else if (activeSlot === 'rifle') {
+        hit = rifle.fire(waveManager.raycastTargets);
+        damage = rifle.damage;
+      } else {
+        hit = knife.swing(waveManager.raycastTargets);
+        damage = knife.damage;
+      }
       if (hit) {
         const zombie = hit.object.userData.zombieRef as Zombie | undefined;
-        zombie?.takeDamage(activeSlot === 'pistol' ? weapon.damage : knife.damage);
+        zombie?.takeDamage(damage);
       }
     }
     weapon.update(dt);
+    rifle.update(dt);
     knife.update(dt);
 
     const { damageToPlayer } = waveManager.update(dt, camera.position);
@@ -169,6 +188,8 @@ function animate() {
     hud.setHealth(playerHealth, PLAYER_MAX_HEALTH);
     if (activeSlot === 'pistol') {
       hud.setAmmo(weapon.ammoInMag, weapon.reserveAmmo, weapon.isReloading);
+    } else if (activeSlot === 'rifle') {
+      hud.setAmmo(rifle.ammoInMag, rifle.reserveAmmo, rifle.isReloading);
     } else {
       hud.showMelee();
     }

@@ -37,7 +37,7 @@ export class Hud {
     this.overlay.id = 'overlay';
     this.overlay.innerHTML = `
       <h1 id="overlay-title">HORDE FPS</h1>
-      <p id="overlay-body">WASD mover · Ratón apuntar · Click disparar/atacar · R recargar · 1/2 cambiar arma · Espacio saltar</p>
+      <p id="overlay-body">WASD mover · Ratón apuntar · Click disparar/atacar · R recargar · 1/2/3 cambiar arma · Espacio saltar</p>
       <p class="hint">Click para empezar</p>
     `;
     container.appendChild(this.overlay);

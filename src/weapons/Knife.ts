@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import { buildArm } from './Arm.ts';
 
-const ATTACK_INTERVAL = 0.38;
-const WINDUP_TIME = 0.06;
-const STRIKE_TIME = 0.075;
-const RECOVER_TIME = 0.15;
+const ATTACK_INTERVAL = 0.36;
+const WINDUP_TIME = 0.09;
+const STRIKE_TIME = 0.11;
+const RECOVER_TIME = 0.13;
 const SWING_TOTAL = WINDUP_TIME + STRIKE_TIME + RECOVER_TIME;
 const DAMAGE = 55;
 const RANGE = 2.4;
@@ -12,19 +12,18 @@ const RANGE = 2.4;
 const VIEWMODEL_DISTANCE = 0.95;
 const VIEWMODEL_SCALE = 2.1;
 
-// Windup cocks the blade back and up; the strike is a fast diagonal chop that
-// also thrusts forward, so the tip visibly sweeps across the screen (a big
-// rotation change) while still reaching toward the crosshair (forward Z).
+// An aggressive, committed stab. Windup cocks the knife back and up while the
+// blade pitches to aim its point forward at the target; the strike then drives
+// the point hard forward into the target center and holds briefly at full
+// extension (the hit) before the hand retracts. It commits forward like a real
+// knife kill instead of gently waving.
 const REST_POSE = { pos: new THREE.Vector3(0, 0, 0), rot: new THREE.Euler(0, 0, 0) };
-const WINDUP_POSE = { pos: new THREE.Vector3(0.05, 0.09, 0.07), rot: new THREE.Euler(0.35, -0.15, 0.55) };
-const STRIKE_POSE = { pos: new THREE.Vector3(-0.09, -0.16, -0.34), rot: new THREE.Euler(-0.55, 0.1, -1.35) };
+const WINDUP_POSE = { pos: new THREE.Vector3(0.12, 0.14, 0.15), rot: new THREE.Euler(-0.5, 0.05, 0.1) };
+const STRIKE_POSE = { pos: new THREE.Vector3(-0.05, 0.0, -0.5), rot: new THREE.Euler(-1.4, 0.0, 0.0) };
 
-function easeOutQuad(t: number): number {
-  return 1 - (1 - t) * (1 - t);
-}
-function smoothstep(t: number): number {
+function easeInOutQuad(t: number): number {
   const c = Math.min(1, Math.max(0, t));
-  return c * c * (3 - 2 * c);
+  return c < 0.5 ? 2 * c * c : 1 - Math.pow(-2 * c + 2, 2) / 2;
 }
 function easeOutCubic(t: number): number {
   const c = Math.min(1, Math.max(0, t));
@@ -198,11 +197,13 @@ export class Knife {
     let trailOpacity = 0;
 
     if (elapsed < WINDUP_TIME) {
-      const t = easeOutQuad(elapsed / WINDUP_TIME);
+      // easeInOutQuad accelerates smoothly into the wind-up instead of snapping.
+      const t = easeInOutQuad(elapsed / WINDUP_TIME);
       pos = REST_POSE.pos.clone().lerp(WINDUP_POSE.pos, t);
       rot = lerpEuler(REST_POSE.rot, WINDUP_POSE.rot, t);
     } else if (elapsed < WINDUP_TIME + STRIKE_TIME) {
-      const t = smoothstep((elapsed - WINDUP_TIME) / STRIKE_TIME);
+      // easeOutCubic makes the blade whip across fast, then decelerate.
+      const t = easeOutCubic((elapsed - WINDUP_TIME) / STRIKE_TIME);
       pos = WINDUP_POSE.pos.clone().lerp(STRIKE_POSE.pos, t);
       rot = lerpEuler(WINDUP_POSE.rot, STRIKE_POSE.rot, t);
       trailOpacity = Math.sin(t * Math.PI) * 0.9;
@@ -210,7 +211,7 @@ export class Knife {
       const t = easeOutCubic((elapsed - WINDUP_TIME - STRIKE_TIME) / RECOVER_TIME);
       pos = STRIKE_POSE.pos.clone().lerp(REST_POSE.pos, t);
       rot = lerpEuler(STRIKE_POSE.rot, REST_POSE.rot, t);
-      trailOpacity = Math.max(0, 0.25 * (1 - t));
+      trailOpacity = Math.max(0, 0.2 * (1 - t));
     }
 
     this.viewModel.position.set(
