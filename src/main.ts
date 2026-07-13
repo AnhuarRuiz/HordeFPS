@@ -22,11 +22,25 @@ const camera = new THREE.PerspectiveCamera(78, window.innerWidth / window.innerH
 scene.add(camera);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 appEl.appendChild(renderer.domElement);
+
+// Mobile browsers resize the visual viewport (not window.innerWidth/Height)
+// when the address bar shows/hides, which previously left a stale gap at the
+// top of the canvas. visualViewport tracks the actual visible area.
+function syncViewportSize() {
+  const width = window.visualViewport?.width ?? window.innerWidth;
+  const height = window.visualViewport?.height ?? window.innerHeight;
+  camera.aspect = width / height;
+  camera.updateProjectionMatrix();
+  renderer.setSize(width, height);
+  window.scrollTo(0, 0);
+}
+syncViewportSize();
+window.visualViewport?.addEventListener('resize', syncViewportSize);
+window.visualViewport?.addEventListener('scroll', syncViewportSize);
 
 const arena = buildArena();
 scene.add(arena.group);
@@ -112,11 +126,8 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Digit2') setActiveSlot('knife');
 });
 window.addEventListener('contextmenu', (e) => e.preventDefault());
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});
+window.addEventListener('resize', syncViewportSize);
+window.addEventListener('orientationchange', syncViewportSize);
 
 function endGame() {
   gameOver = true;
