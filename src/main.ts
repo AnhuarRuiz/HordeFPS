@@ -48,7 +48,9 @@ scene.add(arena.group);
 
 const hud = new Hud(appEl);
 if (mobile) {
-  hud.setOverlayInstructions('Joystick mover · Arrastrar mirar · ● disparar/atacar · Toca para empezar');
+  hud.setOverlayInstructions(
+    'Joystick mover · Arrastra para mirar · Botón rojo dispara y apunta · Toca un arma para cambiar',
+  );
   document.body.classList.add('mobile-layout');
 }
 
@@ -72,7 +74,6 @@ const knife = new Knife(camera);
 const waveManager = new WaveManager(scene, arena.spawnPoints, arena.collisionBoxes, () => {});
 
 type WeaponSlot = 'pistol' | 'rifle' | 'knife';
-const WEAPON_CYCLE: WeaponSlot[] = ['pistol', 'rifle', 'knife'];
 let activeSlot: WeaponSlot = 'pistol';
 
 interface Switchable {
@@ -107,11 +108,6 @@ function requestSwitch(slot: WeaponSlot) {
   switchTo = slot;
 }
 
-function cycleWeapon() {
-  const from = switching ? switchTo : activeSlot;
-  requestSwitch(WEAPON_CYCLE[(WEAPON_CYCLE.indexOf(from) + 1) % WEAPON_CYCLE.length]);
-}
-
 function updateSwitch(dt: number) {
   if (!switching) return;
   switchTimer += dt;
@@ -123,6 +119,7 @@ function updateSwitch(dt: number) {
       activeSlot = switchTo;
       weaponForSlot(activeSlot).setActive(true);
       weaponForSlot(activeSlot).setSwitchOffset(1);
+      mobileControls?.setActiveWeapon(activeSlot);
       switchPhase = 'raise';
       switchTimer = 0;
     }
@@ -153,9 +150,10 @@ const mobileControls = mobile
         if (activeSlot === 'pistol') weapon.tryReload();
         else if (activeSlot === 'rifle') rifle.tryReload();
       },
-      onSwitchWeapon: () => cycleWeapon(),
+      onSelectWeapon: (slot) => requestSwitch(slot),
     })
   : null;
+mobileControls?.setActiveWeapon(activeSlot);
 
 hud.onOverlayClick(() => {
   if (gameOver) {

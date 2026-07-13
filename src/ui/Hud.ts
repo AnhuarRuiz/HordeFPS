@@ -3,7 +3,8 @@ export class Hud {
   private overlay: HTMLDivElement;
   private overlayTitle: HTMLHeadingElement;
   private overlayBody: HTMLParagraphElement;
-  private healthInner: HTMLDivElement;
+  private healthFill: HTMLDivElement;
+  private healthNum: HTMLDivElement;
   private ammoMag: HTMLDivElement;
   private ammoReserve: HTMLDivElement;
   private waveLabel: HTMLDivElement;
@@ -18,15 +19,16 @@ export class Hud {
       <div id="crosshair"></div>
       <div id="hit-flash"></div>
       <div id="top-center">
-        <div id="wave-label">Wave 1</div>
-        <div id="zombies-label">0 zombies left</div>
+        <div id="wave-label">Oleada 1</div>
+        <div id="zombies-label">0 zombies</div>
       </div>
       <div id="reload-indicator">RECARGANDO</div>
-      <div id="bottom-left">
-        <div id="health-bar-outer"><div id="health-bar-inner"></div></div>
-        <div>VIDA</div>
+      <div id="health-panel">
+        <svg class="hp-heart" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 21s-7.6-4.7-10.1-9.3C.2 8.4 1.9 4.9 5.3 4.9c2 0 3.4 1.1 4.2 2.4h1c.8-1.3 2.2-2.4 4.2-2.4 3.4 0 5.1 3.5 3.4 6.8C19.6 16.3 12 21 12 21Z"/></svg>
+        <div id="health-track"><div id="health-fill"></div></div>
+        <div id="health-num">100</div>
       </div>
-      <div id="bottom-right">
+      <div id="ammo-panel">
         <div id="ammo-mag">30</div>
         <div id="ammo-reserve">/ 150</div>
       </div>
@@ -42,7 +44,8 @@ export class Hud {
     `;
     container.appendChild(this.overlay);
 
-    this.healthInner = this.root.querySelector('#health-bar-inner')!;
+    this.healthFill = this.root.querySelector('#health-fill')!;
+    this.healthNum = this.root.querySelector('#health-num')!;
     this.ammoMag = this.root.querySelector('#ammo-mag')!;
     this.ammoReserve = this.root.querySelector('#ammo-reserve')!;
     this.waveLabel = this.root.querySelector('#wave-label')!;
@@ -73,7 +76,12 @@ export class Hud {
 
   setHealth(current: number, max: number) {
     const pct = Math.max(0, Math.min(100, (current / max) * 100));
-    this.healthInner.style.width = `${pct}%`;
+    this.healthFill.style.width = `${pct}%`;
+    this.healthNum.textContent = String(Math.max(0, Math.round(current)));
+    // Green when healthy, amber when hurt, red when critical.
+    const color = pct > 55 ? '#4ccf6a' : pct > 25 ? '#f0a326' : '#e23b3b';
+    this.healthFill.style.background = color;
+    this.root.classList.toggle('health-critical', pct <= 25);
   }
 
   setAmmo(inMag: number, reserve: number, reloading: boolean) {

@@ -1,3 +1,5 @@
+export type WeaponSlotId = 'pistol' | 'rifle' | 'knife';
+
 export interface MobileControlsCallbacks {
   onMove: (x: number, z: number) => void;
   onLook: (dx: number, dy: number) => void;
@@ -6,10 +8,25 @@ export interface MobileControlsCallbacks {
   onJumpStart: () => void;
   onJumpEnd: () => void;
   onReload: () => void;
-  onSwitchWeapon: () => void;
+  onSelectWeapon: (slot: WeaponSlotId) => void;
 }
 
 const JOYSTICK_RADIUS = 55;
+
+const WEAPON_ICONS: Record<WeaponSlotId, string> = {
+  pistol:
+    '<svg viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" d="M4 10h16v3h5a1 1 0 0 1 1 1v3h-8v-2h-3l-3 6H7l2-6H4z"/></svg>',
+  rifle:
+    '<svg viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" d="M2 13l5-1 2-2h11v3h4v-2h2v6h-2v-2h-4v2h-8l-1 4h-4l1-4H6l-1 3H2z"/></svg>',
+  knife:
+    '<svg viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" d="M27 4 13 18l1 3 3 1L28 8zM11 20l-6 6 1 2 2 1 6-6z"/></svg>',
+};
+
+const WEAPON_LABELS: Record<WeaponSlotId, string> = {
+  pistol: 'Pistola',
+  rifle: 'Fusil',
+  knife: 'Cuchillo',
+};
 
 export function isMobileDevice(): boolean {
   const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
@@ -27,35 +44,58 @@ export class MobileControls {
   private fireTouchId: number | null = null;
   private lastFireX = 0;
   private lastFireY = 0;
+  private weaponSlots: HTMLButtonElement[] = [];
 
   constructor(container: HTMLElement, callbacks: MobileControlsCallbacks) {
     this.root = document.createElement('div');
     this.root.id = 'mobile-controls';
     this.root.style.display = 'none';
+    const slots: WeaponSlotId[] = ['pistol', 'rifle', 'knife'];
+    const dockButtons = slots
+      .map(
+        (slot, i) => `
+        <button class="weapon-slot" data-slot="${slot}" aria-label="${WEAPON_LABELS[slot]}">
+          <span class="weapon-key">${i + 1}</span>
+          <span class="weapon-icon">${WEAPON_ICONS[slot]}</span>
+        </button>`,
+      )
+      .join('');
+
     this.root.innerHTML = `
       <div id="touch-look-layer"></div>
       <div id="joystick-base"><div id="joystick-knob"></div></div>
-      <div class="mobile-btn" id="btn-switch">🔪</div>
-      <div class="mobile-btn" id="btn-reload">⟳</div>
-      <div class="mobile-btn" id="btn-jump">▲</div>
-      <div class="mobile-btn mobile-btn-fire" id="btn-fire">●</div>
+      <div id="weapon-dock">${dockButtons}</div>
+      <button class="mobile-btn" id="btn-reload" aria-label="Recargar"><span class="btn-glyph">⟳</span></button>
+      <button class="mobile-btn" id="btn-jump" aria-label="Saltar"><span class="btn-glyph">▲</span></button>
+      <button class="mobile-btn mobile-btn-fire" id="btn-fire" aria-label="Disparar"></button>
     `;
     container.appendChild(this.root);
 
     const lookLayer = this.root.querySelector<HTMLDivElement>('#touch-look-layer')!;
     const joystickBase = this.root.querySelector<HTMLDivElement>('#joystick-base')!;
     const joystickKnob = this.root.querySelector<HTMLDivElement>('#joystick-knob')!;
-    const fireBtn = this.root.querySelector<HTMLDivElement>('#btn-fire')!;
-    const jumpBtn = this.root.querySelector<HTMLDivElement>('#btn-jump')!;
-    const reloadBtn = this.root.querySelector<HTMLDivElement>('#btn-reload')!;
-    const switchBtn = this.root.querySelector<HTMLDivElement>('#btn-switch')!;
+    const fireBtn = this.root.querySelector<HTMLButtonElement>('#btn-fire')!;
+    const jumpBtn = this.root.querySelector<HTMLButtonElement>('#btn-jump')!;
+    const reloadBtn = this.root.querySelector<HTMLButtonElement>('#btn-reload')!;
 
     this.setupJoystick(joystickBase, joystickKnob, callbacks.onMove);
     this.setupLook(lookLayer, callbacks.onLook);
     this.setupFireLookButton(fireBtn, callbacks.onFireStart, callbacks.onFireEnd, callbacks.onLook);
     this.setupHoldButton(jumpBtn, callbacks.onJumpStart, callbacks.onJumpEnd);
     this.setupTapButton(reloadBtn, callbacks.onReload);
-    this.setupTapButton(switchBtn, callbacks.onSwitchWeapon);
+
+    this.weaponSlots = Array.from(this.root.querySelectorAll<HTMLButtonElement>('.weapon-slot'));
+    for (const btn of this.weaponSlots) {
+      const slot = btn.dataset.slot as WeaponSlotId;
+      this.setupTapButton(btn, () => callbacks.onSelectWeapon(slot));
+    }
+  }
+
+  // Highlight the currently drawn weapon in the dock.
+  setActiveWeapon(slot: WeaponSlotId) {
+    for (const btn of this.weaponSlots) {
+      btn.classList.toggle('active', btn.dataset.slot === slot);
+    }
   }
 
   setVisible(visible: boolean) {

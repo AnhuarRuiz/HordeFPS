@@ -47,61 +47,106 @@ canvas {
   background: rgba(255, 255, 255, 0.85);
 }
 
-#bottom-left {
+#health-panel,
+#ammo-panel {
   position: absolute;
-  left: 24px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: rgba(10, 12, 16, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+
+#health-panel {
+  left: 22px;
   bottom: 22px;
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
 }
 
-#health-bar-outer {
-  width: 220px;
-  height: 18px;
-  border: 2px solid rgba(255, 255, 255, 0.6);
-  border-radius: 4px;
+.hp-heart {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  color: #e23b3b;
+  filter: drop-shadow(0 0 5px rgba(226, 59, 59, 0.55));
+}
+
+#health-track {
+  width: 172px;
+  height: 12px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.13);
   overflow: hidden;
-  margin-bottom: 6px;
-  background: rgba(0, 0, 0, 0.4);
 }
 
-#health-bar-inner {
+#health-fill {
   height: 100%;
   width: 100%;
-  background: linear-gradient(90deg, #d62828, #f77f00);
-  transition: width 0.15s ease-out;
+  border-radius: 6px;
+  background: #4ccf6a;
+  transition: width 0.18s ease-out, background 0.2s ease-out;
 }
 
-#bottom-right {
-  position: absolute;
-  right: 24px;
-  bottom: 22px;
-  font-size: 26px;
-  font-weight: 700;
+#health-num {
+  min-width: 30px;
   text-align: right;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+#hud.health-critical .hp-heart {
+  animation: heart-pulse 0.75s ease-in-out infinite;
+}
+
+@keyframes heart-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.28); }
+}
+
+#ammo-panel {
+  right: 22px;
+  bottom: 22px;
+  align-items: baseline;
+  gap: 4px;
+}
+
+#ammo-mag {
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1;
 }
 
 #ammo-reserve {
   font-size: 14px;
-  opacity: 0.75;
-  font-weight: 500;
+  opacity: 0.7;
+  font-weight: 600;
 }
 
 #top-center {
   position: absolute;
-  top: 20px;
+  top: max(16px, env(safe-area-inset-top));
   left: 50%;
   transform: translateX(-50%);
   text-align: center;
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 1px;
+  padding: 6px 20px;
+  border-radius: 14px;
+  background: rgba(10, 12, 16, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
 }
 
 #wave-label {
-  font-size: 22px;
-  margin-bottom: 2px;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+
+#zombies-label {
+  font-size: 12px;
+  opacity: 0.75;
+  letter-spacing: 0.5px;
 }
 
 #reload-indicator {
@@ -208,59 +253,156 @@ canvas {
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.12);
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  color: #fff;
+  background: rgba(16, 19, 26, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: rgba(255, 255, 255, 0.9);
   font-size: 22px;
   touch-action: none;
   user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  transition: transform 0.1s ease, background 0.12s ease;
+}
+
+.mobile-btn:active {
+  transform: scale(0.92);
+  background: rgba(40, 46, 58, 0.6);
+}
+
+.btn-glyph {
+  line-height: 1;
+  pointer-events: none;
 }
 
 #btn-fire {
-  right: max(28px, env(safe-area-inset-right));
-  bottom: max(30px, env(safe-area-inset-bottom));
-  width: 92px;
-  height: 92px;
-  font-size: 30px;
-  background: rgba(214, 40, 40, 0.25);
-  border-color: rgba(255, 120, 120, 0.55);
+  right: max(26px, env(safe-area-inset-right));
+  bottom: max(28px, env(safe-area-inset-bottom));
+  width: 96px;
+  height: 96px;
+  background: radial-gradient(circle at 50% 40%, rgba(240, 70, 60, 0.42), rgba(150, 26, 26, 0.5));
+  border: 2px solid rgba(255, 130, 120, 0.7);
+  box-shadow: 0 0 22px rgba(220, 50, 40, 0.4), inset 0 0 18px rgba(255, 120, 100, 0.2);
+}
+
+#btn-fire::after {
+  content: '';
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+#btn-fire:active {
+  transform: scale(0.95);
 }
 
 #btn-jump {
-  right: max(40px, env(safe-area-inset-right));
-  bottom: max(140px, env(safe-area-inset-bottom));
+  right: max(134px, env(safe-area-inset-right));
+  bottom: max(34px, env(safe-area-inset-bottom));
   width: 66px;
   height: 66px;
+  font-size: 24px;
 }
 
 #btn-reload {
-  right: max(150px, env(safe-area-inset-right));
-  bottom: max(40px, env(safe-area-inset-bottom));
-  width: 62px;
-  height: 62px;
+  right: max(46px, env(safe-area-inset-right));
+  bottom: max(132px, env(safe-area-inset-bottom));
+  width: 64px;
+  height: 64px;
+  font-size: 26px;
 }
 
-#btn-switch {
-  right: max(150px, env(safe-area-inset-right));
-  bottom: max(140px, env(safe-area-inset-bottom));
-  width: 58px;
-  height: 58px;
+/* Weapon dock: tap a slot to draw that weapon; the active one is highlighted. */
+#weapon-dock {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: max(22px, env(safe-area-inset-bottom));
+  display: flex;
+  gap: 10px;
 }
 
-/* On mobile the joystick/buttons occupy the bottom ~210px of the screen, so
-   the health/ammo readouts move up above them instead of overlapping. */
-body.mobile-layout #bottom-left {
-  bottom: 218px;
-  left: 16px;
+.weapon-slot {
+  position: relative;
+  width: 60px;
+  height: 60px;
+  padding: 0;
+  border-radius: 16px;
+  background: rgba(16, 19, 26, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  transition: transform 0.14s ease, background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
 }
 
-body.mobile-layout #health-bar-outer {
-  width: 150px;
+.weapon-slot .weapon-icon {
+  display: flex;
 }
 
-body.mobile-layout #bottom-right {
-  bottom: 218px;
-  right: 16px;
-  font-size: 20px;
+.weapon-slot .weapon-icon svg {
+  width: 36px;
+  height: 36px;
+  display: block;
+}
+
+.weapon-slot .weapon-key {
+  position: absolute;
+  top: 5px;
+  left: 8px;
+  font-size: 10px;
+  font-weight: 800;
+  opacity: 0.5;
+}
+
+.weapon-slot.active {
+  background: rgba(247, 127, 0, 0.22);
+  border-color: rgba(255, 172, 84, 0.85);
+  color: #ffd9a8;
+  box-shadow: 0 0 16px rgba(247, 127, 0, 0.45);
+  transform: translateY(-5px) scale(1.06);
+}
+
+.weapon-slot:active {
+  transform: scale(0.93);
+}
+
+/* On mobile the bottom is reserved for controls, so health and ammo move to
+   the top corners. */
+body.mobile-layout #health-panel {
+  top: max(12px, env(safe-area-inset-top));
+  left: max(12px, env(safe-area-inset-left));
+  bottom: auto;
+  padding: 6px 12px;
+}
+
+body.mobile-layout #health-track {
+  width: 108px;
+}
+
+body.mobile-layout #ammo-panel {
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  bottom: auto;
+  padding: 6px 12px;
+}
+
+body.mobile-layout #ammo-mag {
+  font-size: 24px;
+}
+
+body.mobile-layout #top-center {
+  top: max(10px, env(safe-area-inset-top));
+  padding: 4px 14px;
+}
+
+body.mobile-layout #wave-label {
+  font-size: 16px;
 }
