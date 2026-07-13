@@ -1,0 +1,261 @@
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  font-family: 'Segoe UI', Arial, sans-serif;
+  user-select: none;
+}
+
+#app {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+}
+
+canvas {
+  display: block;
+}
+
+#hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  color: #eee;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+}
+
+#crosshair {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+}
+
+#bottom-left {
+  position: absolute;
+  left: 24px;
+  bottom: 22px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+#health-bar-outer {
+  width: 220px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 6px;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+#health-bar-inner {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #d62828, #f77f00);
+  transition: width 0.15s ease-out;
+}
+
+#bottom-right {
+  position: absolute;
+  right: 24px;
+  bottom: 22px;
+  font-size: 26px;
+  font-weight: 700;
+  text-align: right;
+}
+
+#ammo-reserve {
+  font-size: 14px;
+  opacity: 0.75;
+  font-weight: 500;
+}
+
+#top-center {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+
+#wave-label {
+  font-size: 22px;
+  margin-bottom: 2px;
+}
+
+#reload-indicator {
+  position: absolute;
+  top: 55%;
+  left: 50%;
+  transform: translate(-50%, 0);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: #ffd60a;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+#reload-indicator.visible {
+  opacity: 1;
+}
+
+#hit-flash {
+  position: absolute;
+  inset: 0;
+  background: rgba(214, 40, 40, 0);
+  transition: background 0.08s ease-out;
+}
+
+#overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  text-align: center;
+  pointer-events: auto;
+  cursor: pointer;
+  z-index: 10;
+}
+
+#overlay h1 {
+  font-size: 40px;
+  margin: 0 0 12px;
+  letter-spacing: 2px;
+}
+
+#overlay p {
+  font-size: 16px;
+  opacity: 0.8;
+  margin: 4px 0;
+}
+
+#overlay.hidden {
+  display: none;
+}
+
+#overlay .hint {
+  margin-top: 20px;
+  font-size: 14px;
+  opacity: 0.6;
+}
+
+#mobile-controls {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+}
+
+#touch-look-layer {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+}
+
+#joystick-base {
+  position: absolute;
+  left: max(24px, env(safe-area-inset-left));
+  bottom: max(28px, env(safe-area-inset-bottom));
+  width: 130px;
+  height: 130px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  touch-action: none;
+}
+
+#joystick-knob {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 56px;
+  height: 56px;
+  margin: -28px 0 0 -28px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.35);
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  pointer-events: none;
+  transition: transform 0.02s linear;
+}
+
+.mobile-btn {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  color: #fff;
+  font-size: 22px;
+  touch-action: none;
+  user-select: none;
+}
+
+#btn-fire {
+  right: max(28px, env(safe-area-inset-right));
+  bottom: max(30px, env(safe-area-inset-bottom));
+  width: 92px;
+  height: 92px;
+  font-size: 30px;
+  background: rgba(214, 40, 40, 0.25);
+  border-color: rgba(255, 120, 120, 0.55);
+}
+
+#btn-jump {
+  right: max(40px, env(safe-area-inset-right));
+  bottom: max(140px, env(safe-area-inset-bottom));
+  width: 66px;
+  height: 66px;
+}
+
+#btn-reload {
+  right: max(150px, env(safe-area-inset-right));
+  bottom: max(40px, env(safe-area-inset-bottom));
+  width: 62px;
+  height: 62px;
+}
+
+#btn-switch {
+  right: max(150px, env(safe-area-inset-right));
+  bottom: max(140px, env(safe-area-inset-bottom));
+  width: 58px;
+  height: 58px;
+}
+
+/* On mobile the joystick/buttons occupy the bottom ~210px of the screen, so
+   the health/ammo readouts move up above them instead of overlapping. */
+body.mobile-layout #bottom-left {
+  bottom: 218px;
+  left: 16px;
+}
+
+body.mobile-layout #health-bar-outer {
+  width: 150px;
+}
+
+body.mobile-layout #bottom-right {
+  bottom: 218px;
+  right: 16px;
+  font-size: 20px;
+}
