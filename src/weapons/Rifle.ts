@@ -40,6 +40,8 @@ export class Rifle {
   private magRestY = 0;
   private chargingHandle!: THREE.Mesh;
   private chargeRestZ = 0;
+  private supportHand!: THREE.Group;
+  private supportAnchor = new THREE.Vector3();
 
   constructor(camera: THREE.PerspectiveCamera) {
     this.camera = camera;
@@ -66,6 +68,8 @@ export class Rifle {
     supportMount.scale.setScalar(1 / gunScale);
     supportMount.add(buildSupportArm());
     gun.add(supportMount);
+    this.supportHand = supportMount;
+    this.supportAnchor.copy(supportMount.position);
 
     const fillLight = new THREE.PointLight(0xfff2e0, 0.85, 3);
     fillLight.position.set(0.35, 0.4, 0.5);
@@ -331,6 +335,44 @@ export class Rifle {
     else if (p >= 0.44 && p < 0.58) magY = -0.26 * (1 - (p - 0.44) / 0.14);
     this.magPivot.position.y = this.magRestY + magY;
 
+    // The SAME support hand does the whole reload: it leaves the handguard,
+    // grips the magazine through the swap, then slides back onto the handguard.
+    // One continuous hand (no second mesh), so there is nothing to hand off and
+    // no teleport. Gun-local coordinates throughout.
+    const mx = 0.02;
+    const my = -0.17 + magY; // mag hangs below the receiver, tracks the drop
+    const mz = -0.02;
+    const hx = this.supportAnchor.x;
+    const hy = this.supportAnchor.y;
+    const hz = this.supportAnchor.z;
+
+    let px = hx;
+    let py = hy;
+    let pz = hz;
+    if (p < 0.1) {
+      // still on the handguard
+    } else if (p < 0.18) {
+      // leave the handguard, reach down to the mag
+      const t = (p - 0.1) / 0.08;
+      px = hx + (mx - hx) * t;
+      py = hy + (my - hy) * t;
+      pz = hz + (mz - hz) * t;
+    } else if (p < 0.58) {
+      // hold the mag through the drop-out / seat-in
+      px = mx;
+      py = my;
+      pz = mz;
+    } else if (p < 0.74) {
+      // slide forward back onto the handguard, dipping so it clears the mag well
+      const t = (p - 0.58) / 0.16;
+      const cy = Math.min(my, hy) - 0.05;
+      const u = 1 - t;
+      px = mx + (hx - mx) * t;
+      py = u * u * my + 2 * u * t * cy + t * t * hy;
+      pz = mz + (hz - mz) * t;
+    }
+    this.supportHand.position.set(px, py, pz);
+
     // Charging handle yanked back and released with the second beat.
     this.chargingHandle.position.z = this.chargeRestZ + charge * 0.09;
   }
@@ -361,6 +403,7 @@ export class Rifle {
       this.viewModel.rotation.set(0, 0, 0);
       this.magPivot.position.y = this.magRestY;
       this.chargingHandle.position.z = this.chargeRestZ;
+      this.supportHand.position.copy(this.supportAnchor);
     }
 
     if (this.muzzleFlashTimer > 0) {

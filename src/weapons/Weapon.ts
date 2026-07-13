@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildArm } from './Arm.ts';
+import { buildArm, buildReloadHand } from './Arm.ts';
 
 const MAG_SIZE = 30;
 const MAX_RESERVE = 150;
@@ -37,6 +37,9 @@ export class Weapon {
   private slide!: THREE.Mesh;
   private slideRestZ = 0;
   private magGroup!: THREE.Group;
+  private reloadHand!: THREE.Group;
+  private gripPivot!: THREE.Group;
+  private tmpVec = new THREE.Vector3();
 
   constructor(camera: THREE.PerspectiveCamera) {
     this.camera = camera;
@@ -56,6 +59,16 @@ export class Weapon {
     const arm = buildArm();
     arm.scale.setScalar(1 / gunScale);
     gun.add(arm);
+
+    // Off hand that carries the magazine and racks the slide during reloads
+    // (hidden otherwise). Parented to the gun so it can reach both the mag well
+    // and the slide in one coordinate space.
+    this.gripPivot = gun.userData.gripPivot as THREE.Group;
+    const reloadHand = buildReloadHand();
+    reloadHand.scale.setScalar(1 / gunScale);
+    reloadHand.visible = false;
+    gun.add(reloadHand);
+    this.reloadHand = reloadHand;
 
     const fillLight = new THREE.PointLight(0xfff2e0, 0.85, 3);
     fillLight.position.set(0.35, 0.4, 0.5);
@@ -256,31 +269,88 @@ export class Weapon {
     return { object: hit.object, point: hit.point, distance: hit.distance };
   }
 
-  // Pistol reload, two visible beats: (1) tilt down and swap the magazine,
-  // (2) tug the gun up while the slide racks hard (the slide sits on top, so
-  // it reads clearly even though the hand hides the mag). `p` runs 0→1.
+  // Pistol reload driven by the off hand: it reaches in, drops the old mag and
+  // seats a fresh one (carrying it the whole way), then moves up to the slide
+  // and racks it, and finally pulls back out. `p` runs 0→1.
   private applyReloadPose(p: number) {
-    const env = p < 0.12 ? p / 0.12 : p > 0.88 ? Math.max(0, (1 - p) / 0.12) : 1;
-    // Rack beat: a 0→1→0 hump over 0.60–0.82.
-    const rack = p > 0.6 && p < 0.82 ? Math.sin(((p - 0.6) / 0.22) * Math.PI) : 0;
+    const env = p < 0.12 ? p / 0.12 : p > 0.9 ? Math.max(0, (1 - p) / 0.1) : 1;
+    // Slide-rack hump while the hand is on the slide (0.66–0.82).
+    const rack = p > 0.66 && p < 0.82 ? Math.sin(((p - 0.66) / 0.16) * Math.PI) : 0;
 
     this.viewModel.position.set(
       this.basePosition.x - 0.04 * env,
-      this.basePosition.y - 0.08 * env + 0.035 * rack,
+      this.basePosition.y - 0.08 * env + 0.03 * rack,
       this.basePosition.z + 0.04 * env,
     );
     // Muzzle up and mag well rolled toward the viewer; the rack jerks it up.
-    this.viewModel.rotation.set(0.45 * env - 0.18 * rack, 0.28 * env, 0.45 * env);
+    this.viewModel.rotation.set(0.45 * env - 0.12 * rack, 0.28 * env, 0.45 * env);
 
-    // Old mag drops out (0.18–0.40); a fresh one rides back up (0.44–0.60).
+    // Old mag drops out (0.18–0.40); a fresh one rides back up (0.44–0.58).
     let magY = 0;
     if (p >= 0.18 && p < 0.4) magY = -0.3 * ((p - 0.18) / 0.22);
     else if (p >= 0.4 && p < 0.44) magY = -0.3;
-    else if (p >= 0.44 && p < 0.6) magY = -0.3 * (1 - (p - 0.44) / 0.16);
+    else if (p >= 0.44 && p < 0.58) magY = -0.3 * (1 - (p - 0.44) / 0.14);
     this.magGroup.position.y = magY;
 
-    // Slide racks with the second beat: pulled back, then snaps forward.
-    this.slide.position.z = this.slideRestZ + rack * 0.11;
+    // Slide racks with the hand — set before we read it for the hand's grip.
+    this.slide.position.z = this.slideRestZ + rack * 0.12;
+
+    // Off-hand choreography, all in gun-local space.
+    if (p > 0.1 && p < 0.9) {
+      this.reloadHand.visible = true;
+      // Magazine grip point: the mag's origin (in gun space) plus a wrap offset.
+      this.gripPivot.updateMatrix();
+      const mag = this.tmpVec.copy(this.magGroup.position).applyMatrix4(this.gripPivot.matrix);
+      const mx = mag.x - 0.02;
+      const my = mag.y - 0.01;
+      const mz = mag.z - 0.03;
+      // Slide grip point: over the slide, kept forward of the rear so the hand
+      // doesn't balloon up against the camera. Tracks the rack in Z.
+      const sx = this.slide.position.x;
+      const sy = this.slide.position.y + 0.02;
+      const sz = this.slide.position.z - 0.03;
+      // Off-screen rest.
+      const ox = -0.14;
+      const oy = -0.34;
+      const oz = 0.08;
+
+      let hx: number;
+      let hy: number;
+      let hz: number;
+      if (p < 0.18) {
+        const t = (p - 0.1) / 0.08; // reach in to the mag
+        hx = ox + (mx - ox) * t;
+        hy = oy + (my - oy) * t;
+        hz = oz + (mz - oz) * t;
+      } else if (p < 0.58) {
+        hx = mx; // carry the magazine through the swap
+        hy = my;
+        hz = mz;
+      } else if (p < 0.66) {
+        // Travel from the mag up to the slide along an arc that bows out to the
+        // left and up, so the hand goes AROUND the gun instead of through it.
+        const t = (p - 0.58) / 0.08;
+        const cx = -0.13;
+        const cy = Math.max(my, sy) + 0.06;
+        const cz = (mz + sz) / 2 + 0.03;
+        const u = 1 - t;
+        hx = u * u * mx + 2 * u * t * cx + t * t * sx;
+        hy = u * u * my + 2 * u * t * cy + t * t * sy;
+        hz = u * u * mz + 2 * u * t * cz + t * t * sz;
+      } else if (p < 0.82) {
+        hx = sx; // grip the slide and rack it
+        hy = sy;
+        hz = sz;
+      } else {
+        const t = (p - 0.82) / 0.08; // pull back out
+        hx = sx + (ox - sx) * t;
+        hy = sy + (oy - sy) * t;
+        hz = sz + (oz - sz) * t;
+      }
+      this.reloadHand.position.set(hx, hy, hz);
+    } else {
+      this.reloadHand.visible = false;
+    }
   }
 
   update(dt: number) {
@@ -309,6 +379,7 @@ export class Weapon {
       this.viewModel.rotation.set(0, 0, 0);
       this.magGroup.position.y = 0;
       this.slide.position.z = this.slideRestZ;
+      this.reloadHand.visible = false;
     }
 
     if (this.muzzleFlashTimer > 0) {
