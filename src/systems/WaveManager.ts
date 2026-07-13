@@ -4,12 +4,6 @@ import type { CollisionBox } from '../world/Arena.ts';
 
 const SPAWN_INTERVAL = 0.55;
 const INTERMISSION_TIME = 4.5;
-const DEATH_LINGER = 0.5;
-
-interface DyingZombie {
-  zombie: Zombie;
-  timer: number;
-}
 
 export type WaveState = 'spawning' | 'active' | 'intermission';
 
@@ -31,7 +25,7 @@ export class WaveManager {
 
   private queue: ZombieKind[] = [];
   private spawnTimer = 0;
-  private dying: DyingZombie[] = [];
+  private dying: Zombie[] = [];
 
   constructor(
     scene: THREE.Scene,
@@ -110,19 +104,15 @@ export class WaveManager {
       const zombie = this.alive[i];
       if (!zombie.isAlive()) {
         this.alive.splice(i, 1);
-        this.dying.push({ zombie, timer: DEATH_LINGER });
+        zombie.startDeath();
+        this.dying.push(zombie);
         this.onZombieKilled(zombie.kind);
       }
     }
 
     for (let i = this.dying.length - 1; i >= 0; i--) {
-      const entry = this.dying[i];
-      entry.timer -= dt;
-      const t = Math.max(0, entry.timer / DEATH_LINGER);
-      entry.zombie.group.scale.setScalar(Math.max(0.001, entry.zombie.baseScale * t));
-      entry.zombie.group.rotation.z = (1 - t) * 1.4;
-      if (entry.timer <= 0) {
-        this.scene.remove(entry.zombie.group);
+      if (this.dying[i].updateDeath(dt)) {
+        this.scene.remove(this.dying[i].group);
         this.dying.splice(i, 1);
       }
     }

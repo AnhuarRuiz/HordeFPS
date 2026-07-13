@@ -15,6 +15,11 @@ const RECOIL_RECOVERY = 10;
 const VIEWMODEL_DISTANCE = 0.95;
 const VIEWMODEL_SCALE = 2.1;
 
+// How far the viewmodel drops / tilts away while being holstered (0 = drawn).
+const SWITCH_DROP = 0.55;
+const SWITCH_PULL = 0.12;
+const SWITCH_TILT = 0.9;
+
 export interface HitResult {
   object: THREE.Object3D;
   point: THREE.Vector3;
@@ -42,6 +47,7 @@ export class Rifle {
   private chargeRestZ = 0;
   private supportHand!: THREE.Group;
   private supportAnchor = new THREE.Vector3();
+  private switchOffset = 0;
 
   constructor(camera: THREE.PerspectiveCamera) {
     this.camera = camera;
@@ -276,6 +282,11 @@ export class Rifle {
     this.viewModel.visible = active;
   }
 
+  // 0 = fully drawn, 1 = fully holstered (dropped and tilted off screen).
+  setSwitchOffset(offset: number) {
+    this.switchOffset = offset;
+  }
+
   get damage(): number {
     return DAMAGE;
   }
@@ -413,6 +424,13 @@ export class Rifle {
       this.muzzleLight.intensity = mat.opacity * 6;
     } else {
       this.muzzleLight.intensity = 0;
+    }
+
+    // Holster/draw offset applied on top of the freshly-set pose each frame.
+    if (this.switchOffset > 0) {
+      this.viewModel.position.y -= this.switchOffset * SWITCH_DROP;
+      this.viewModel.position.z -= this.switchOffset * SWITCH_PULL;
+      this.viewModel.rotation.x += this.switchOffset * SWITCH_TILT;
     }
   }
 }

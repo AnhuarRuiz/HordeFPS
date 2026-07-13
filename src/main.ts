@@ -75,6 +75,14 @@ type WeaponSlot = 'pistol' | 'rifle' | 'knife';
 const WEAPON_CYCLE: WeaponSlot[] = ['pistol', 'rifle', 'knife'];
 let activeSlot: WeaponSlot = 'pistol';
 
+interface Switchable {
+  setActive(active: boolean): void;
+  setSwitchOffset(offset: number): void;
+}
+function weaponForSlot(slot: WeaponSlot): Switchable {
+  return slot === 'pistol' ? weapon : slot === 'rifle' ? rifle : knife;
+}
+
 function setActiveSlot(slot: WeaponSlot) {
   activeSlot = slot;
   weapon.setActive(slot === 'pistol');
@@ -82,6 +90,50 @@ function setActiveSlot(slot: WeaponSlot) {
   knife.setActive(slot === 'knife');
 }
 setActiveSlot('pistol');
+
+// Weapon switch animation: the current weapon lowers off screen, then the new
+// one is raised into view.
+const SWITCH_TIME = 0.14;
+let switching = false;
+let switchPhase: 'lower' | 'raise' = 'lower';
+let switchTimer = 0;
+let switchTo: WeaponSlot = 'pistol';
+
+function requestSwitch(slot: WeaponSlot) {
+  if (switching || slot === activeSlot) return;
+  switching = true;
+  switchPhase = 'lower';
+  switchTimer = 0;
+  switchTo = slot;
+}
+
+function cycleWeapon() {
+  const from = switching ? switchTo : activeSlot;
+  requestSwitch(WEAPON_CYCLE[(WEAPON_CYCLE.indexOf(from) + 1) % WEAPON_CYCLE.length]);
+}
+
+function updateSwitch(dt: number) {
+  if (!switching) return;
+  switchTimer += dt;
+  const t = Math.min(1, switchTimer / SWITCH_TIME);
+  if (switchPhase === 'lower') {
+    weaponForSlot(activeSlot).setSwitchOffset(t);
+    if (t >= 1) {
+      weaponForSlot(activeSlot).setActive(false);
+      activeSlot = switchTo;
+      weaponForSlot(activeSlot).setActive(true);
+      weaponForSlot(activeSlot).setSwitchOffset(1);
+      switchPhase = 'raise';
+      switchTimer = 0;
+    }
+  } else {
+    weaponForSlot(activeSlot).setSwitchOffset(1 - t);
+    if (t >= 1) {
+      weaponForSlot(activeSlot).setSwitchOffset(0);
+      switching = false;
+    }
+  }
+}
 
 let isMouseDown = false;
 
@@ -101,8 +153,7 @@ const mobileControls = mobile
         if (activeSlot === 'pistol') weapon.tryReload();
         else if (activeSlot === 'rifle') rifle.tryReload();
       },
-      onSwitchWeapon: () =>
-        setActiveSlot(WEAPON_CYCLE[(WEAPON_CYCLE.indexOf(activeSlot) + 1) % WEAPON_CYCLE.length]),
+      onSwitchWeapon: () => cycleWeapon(),
     })
   : null;
 
@@ -131,9 +182,9 @@ window.addEventListener('keydown', (e) => {
     if (activeSlot === 'pistol') weapon.tryReload();
     else if (activeSlot === 'rifle') rifle.tryReload();
   }
-  if (e.code === 'Digit1') setActiveSlot('pistol');
-  if (e.code === 'Digit2') setActiveSlot('rifle');
-  if (e.code === 'Digit3') setActiveSlot('knife');
+  if (e.code === 'Digit1') requestSwitch('pistol');
+  if (e.code === 'Digit2') requestSwitch('rifle');
+  if (e.code === 'Digit3') requestSwitch('knife');
 });
 window.addEventListener('contextmenu', (e) => e.preventDefault());
 window.addEventListener('resize', syncViewportSize);
@@ -155,8 +206,9 @@ function animate() {
 
   if (controller.locked && !gameOver) {
     controller.update(dt);
+    updateSwitch(dt);
 
-    if (isMouseDown) {
+    if (isMouseDown && !switching) {
       let hit = null;
       let damage = 0;
       if (activeSlot === 'pistol') {

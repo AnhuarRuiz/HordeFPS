@@ -24,6 +24,9 @@ export class MobileControls {
   private lookTouchId: number | null = null;
   private lastLookX = 0;
   private lastLookY = 0;
+  private fireTouchId: number | null = null;
+  private lastFireX = 0;
+  private lastFireY = 0;
 
   constructor(container: HTMLElement, callbacks: MobileControlsCallbacks) {
     this.root = document.createElement('div');
@@ -49,7 +52,7 @@ export class MobileControls {
 
     this.setupJoystick(joystickBase, joystickKnob, callbacks.onMove);
     this.setupLook(lookLayer, callbacks.onLook);
-    this.setupHoldButton(fireBtn, callbacks.onFireStart, callbacks.onFireEnd);
+    this.setupFireLookButton(fireBtn, callbacks.onFireStart, callbacks.onFireEnd, callbacks.onLook);
     this.setupHoldButton(jumpBtn, callbacks.onJumpStart, callbacks.onJumpEnd);
     this.setupTapButton(reloadBtn, callbacks.onReload);
     this.setupTapButton(switchBtn, callbacks.onSwitchWeapon);
@@ -147,6 +150,58 @@ export class MobileControls {
     };
     layer.addEventListener('touchend', release);
     layer.addEventListener('touchcancel', release);
+  }
+
+  // Fire button that doubles as an aim surface: press to shoot, and drag the
+  // same finger to move the view — so the player can shoot and aim at once,
+  // in addition to the separate look area of the screen.
+  private setupFireLookButton(
+    el: HTMLElement,
+    onStart: () => void,
+    onEnd: () => void,
+    onLook: (dx: number, dy: number) => void,
+  ) {
+    el.addEventListener(
+      'touchstart',
+      (e: TouchEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (this.fireTouchId !== null) return;
+        const touch = e.changedTouches[0];
+        this.fireTouchId = touch.identifier;
+        this.lastFireX = touch.clientX;
+        this.lastFireY = touch.clientY;
+        onStart();
+      },
+      { passive: false },
+    );
+
+    el.addEventListener(
+      'touchmove',
+      (e: TouchEvent) => {
+        const touch = this.findTouch(e.changedTouches, this.fireTouchId);
+        if (!touch) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const dx = touch.clientX - this.lastFireX;
+        const dy = touch.clientY - this.lastFireY;
+        this.lastFireX = touch.clientX;
+        this.lastFireY = touch.clientY;
+        onLook(dx, dy);
+      },
+      { passive: false },
+    );
+
+    const end = (e: TouchEvent) => {
+      const touch = this.findTouch(e.changedTouches, this.fireTouchId);
+      if (!touch) return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.fireTouchId = null;
+      onEnd();
+    };
+    el.addEventListener('touchend', end);
+    el.addEventListener('touchcancel', end);
   }
 
   private setupHoldButton(el: HTMLElement, onStart: () => void, onEnd: () => void) {

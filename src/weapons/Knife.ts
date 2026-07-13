@@ -12,6 +12,11 @@ const RANGE = 2.4;
 const VIEWMODEL_DISTANCE = 0.95;
 const VIEWMODEL_SCALE = 2.1;
 
+// How far the viewmodel drops / tilts away while being holstered (0 = drawn).
+const SWITCH_DROP = 0.55;
+const SWITCH_PULL = 0.12;
+const SWITCH_TILT = 0.9;
+
 // An aggressive, committed stab. Windup cocks the knife back and up while the
 // blade pitches to aim its point forward at the target; the strike then drives
 // the point hard forward into the target center and holds briefly at full
@@ -48,6 +53,7 @@ export class Knife {
   private swinging = false;
   private swingElapsed = 0;
   private slashTrail!: THREE.Mesh;
+  private switchOffset = 0;
 
   constructor(camera: THREE.PerspectiveCamera) {
     this.camera = camera;
@@ -157,6 +163,11 @@ export class Knife {
     this.viewModel.visible = active;
   }
 
+  // 0 = fully drawn, 1 = fully holstered (dropped and tilted off screen).
+  setSwitchOffset(offset: number) {
+    this.switchOffset = offset;
+  }
+
   canSwing(): boolean {
     return this.cooldown <= 0;
   }
@@ -177,18 +188,29 @@ export class Knife {
   update(dt: number) {
     if (this.cooldown > 0) this.cooldown = Math.max(0, this.cooldown - dt);
 
-    if (!this.swinging) return;
-
-    this.swingElapsed += dt;
-    if (this.swingElapsed >= SWING_TOTAL) {
-      this.swinging = false;
+    if (this.swinging) {
+      this.swingElapsed += dt;
+      if (this.swingElapsed >= SWING_TOTAL) {
+        this.swinging = false;
+        this.viewModel.position.copy(this.basePosition);
+        this.viewModel.rotation.set(0, 0, 0);
+        this.setTrailOpacity(0);
+      } else {
+        this.applySwingPose(this.swingElapsed);
+      }
+    } else {
+      // Idle: keep the viewmodel parked at rest so the holster offset below is
+      // applied from a known base each frame (never accumulates).
       this.viewModel.position.copy(this.basePosition);
       this.viewModel.rotation.set(0, 0, 0);
-      this.setTrailOpacity(0);
-      return;
     }
 
-    this.applySwingPose(this.swingElapsed);
+    // Holster/draw offset applied on top of the freshly-set pose each frame.
+    if (this.switchOffset > 0) {
+      this.viewModel.position.y -= this.switchOffset * SWITCH_DROP;
+      this.viewModel.position.z -= this.switchOffset * SWITCH_PULL;
+      this.viewModel.rotation.x += this.switchOffset * SWITCH_TILT;
+    }
   }
 
   private applySwingPose(elapsed: number) {
