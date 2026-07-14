@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { buildArm, buildFlashlight, buildSupportArm } from './Arm.ts';
-import { playReloadClick, playRifleShot } from '../systems/Audio.ts';
+import { playReloadFinish, playReloadStart, playRifleShot } from '../systems/Audio.ts';
 
 // M4A1: full-auto carbine. Higher rate of fire and range than the pistol, but
 // slightly less damage per round and a longer reload.
@@ -390,7 +390,7 @@ export class Rifle {
     }
     this.isReloading = true;
     this.reloadTimer = RELOAD_TIME;
-    playReloadClick();
+    playReloadStart();
   }
 
   fire(targets: THREE.Object3D[]): HitResult | null {
@@ -538,7 +538,7 @@ export class Rifle {
         this.ammoInMag += taken;
         this.reserveAmmo -= taken;
         this.isReloading = false;
-        playReloadClick();
+        playReloadFinish();
       }
     }
 

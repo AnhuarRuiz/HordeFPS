@@ -112,10 +112,27 @@ export function playDryFire() {
   noiseBurst(c, masterGain, { duration: 0.03, freq: 3000, q: 2, gainPeak: 0.2, attack: 0.001 });
 }
 
-export function playReloadClick() {
+// Reload has two distinct beats, both louder and fuller than a single thin
+// click so they read clearly over gunfire: a meatier clack as the mag drops
+// free, then a crisp double-click as the fresh one seats and the slide/bolt
+// releases.
+export function playReloadStart() {
   const c = getContext();
   if (!c || !masterGain) return;
-  noiseBurst(c, masterGain, { duration: 0.04, freq: 2400, q: 3, gainPeak: 0.3, attack: 0.001 });
+  noiseBurst(c, masterGain, { duration: 0.07, freq: 1100, q: 1.1, gainPeak: 0.5 });
+  tone(c, masterGain, { freqStart: 220, freqEnd: 85, type: 'triangle', duration: 0.08, gainPeak: 0.32 });
+}
+
+export function playReloadFinish() {
+  const c = getContext();
+  if (!c || !masterGain) return;
+  noiseBurst(c, masterGain, { duration: 0.05, freq: 2600, q: 2.5, gainPeak: 0.6 });
+  tone(c, masterGain, { freqStart: 150, freqEnd: 70, type: 'triangle', duration: 0.05, gainPeak: 0.3 });
+  setTimeout(() => {
+    const c2 = getContext();
+    if (!c2 || !masterGain) return;
+    noiseBurst(c2, masterGain, { duration: 0.045, freq: 1900, q: 3, gainPeak: 0.45 });
+  }, 80);
 }
 
 export function playKnifeSwing() {

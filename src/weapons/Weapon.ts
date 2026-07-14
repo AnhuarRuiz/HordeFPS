@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { buildArm, buildHarriesHand, buildReloadHand } from './Arm.ts';
-import { playPistolShot, playReloadClick } from '../systems/Audio.ts';
+import { playPistolShot, playReloadFinish, playReloadStart } from '../systems/Audio.ts';
 
 const MAG_SIZE = 30;
 const MAX_RESERVE = 150;
@@ -478,7 +478,7 @@ export class Weapon {
           this.harriesAway = 1;
           this.phase = 'reload';
           this.reloadTimer = RELOAD_TIME;
-          playReloadClick();
+          playReloadStart();
         }
         break;
       }
@@ -490,7 +490,7 @@ export class Weapon {
           const taken = Math.min(needed, this.reserveAmmo);
           this.ammoInMag += taken;
           this.reserveAmmo -= taken;
-          playReloadClick();
+          playReloadFinish();
           this.phase = 'present';
           this.presentTimer = PRESENT_TIME;
         }

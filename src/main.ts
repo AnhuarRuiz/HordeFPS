@@ -118,10 +118,10 @@ const controller = new FirstPersonController(
 const weapon = new Weapon(camera);
 const rifle = new Rifle(camera);
 const knife = new Knife(camera);
-const bloodFx = new BloodEffects(scene);
+const bloodFx = new BloodEffects(scene, arena.solidMeshes);
 const waveManager = new WaveManager(scene, arena.spawnPoints, arena.collisionBoxes, (kind, position) => {
   money += KILL_REWARD[kind];
-  bloodFx.spawnPool(position);
+  bloodFx.spawnDeath(position);
 });
 
 type WeaponSlot = 'pistol' | 'rifle' | 'knife';
