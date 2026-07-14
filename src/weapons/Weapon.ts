@@ -76,6 +76,10 @@ export class Weapon {
     const arm = buildArm();
     arm.scale.setScalar(1 / gunScale);
     arm.position.y += 0.05;
+    // Swept back toward the shoulder instead of out to the right, so it stops
+    // passing in front of the support hand — its silhouette was slicing a notch
+    // across that fist and making the hand unreadable.
+    arm.rotation.y -= 0.26;
     gun.add(arm);
 
     // Off hand that carries the magazine and racks the slide during reloads
@@ -257,7 +261,7 @@ export class Weapon {
     // Right of, and forward of, the gun hand's arm — which sprawls back toward
     // the camera from the grip and would otherwise sit directly in front of the
     // flashlight and hide it completely.
-    gun.userData.harriesAnchor = new THREE.Vector3(0.23, frameBottom - 0.05, -0.1);
+    gun.userData.harriesAnchor = new THREE.Vector3(0.27, frameBottom - 0.05, -0.1);
 
     return gun;
   }

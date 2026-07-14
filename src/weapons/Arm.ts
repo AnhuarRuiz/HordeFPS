@@ -153,22 +153,28 @@ export function buildHarriesHand(): THREE.Group {
 
   const root = new THREE.Group();
 
-  const fist = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.06, 0.09), cuff);
-  root.add(fist);
+  // Fist, wrist and forearm all live in one group turned to face down the arm,
+  // so they stack along a single axis and read as one continuous limb. Mixing a
+  // world-aligned fist with a rotated forearm is what produced the notched,
+  // crumpled silhouette: two boxes meeting at an angle always crease.
+  const limb = new THREE.Group();
+  pointNegZAlong(limb, HARRIES_ARM_DIR);
+  root.add(limb);
 
-  const knuckles = new THREE.Mesh(new THREE.BoxGeometry(0.072, 0.024, 0.052), cuff);
-  knuckles.position.set(0, 0.026, -0.026);
-  root.add(knuckles);
+  // Inside `limb`, -Z runs out toward the elbow and +Z toward the knuckles.
+  const fist = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.078, 0.105), cuff);
+  limb.add(fist);
 
-  // Forearm: one dead-straight bar anchored at the fist. Its geometry is
-  // shifted so the fist end sits at the local origin and the bar extends along
-  // -Z, which pointNegZAlong then swings out to the right and back.
-  const forearmLength = 0.42;
-  const forearmGeo = new THREE.BoxGeometry(0.074, 0.068, forearmLength);
+  const cuffBand = new THREE.Mesh(new THREE.BoxGeometry(0.076, 0.07, 0.04), cuff);
+  cuffBand.position.z = -0.07;
+  limb.add(cuffBand);
+
+  const forearmLength = 0.44;
+  const forearmGeo = new THREE.BoxGeometry(0.066, 0.06, forearmLength);
   forearmGeo.translate(0, 0, -forearmLength / 2);
   const forearm = new THREE.Mesh(forearmGeo, sleeve);
-  pointNegZAlong(forearm, HARRIES_ARM_DIR);
-  root.add(forearm);
+  forearm.position.z = -0.06;
+  limb.add(forearm);
 
   // Flashlight held in the fist pointing dead ahead — buildFlashlight already
   // faces -Z, the same way the gun's barrel does, so it needs no rotation at
