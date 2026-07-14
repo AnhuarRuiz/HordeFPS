@@ -43,7 +43,8 @@ scene.add(camera);
 // light's x/y offset (just much farther in z) so the cone runs parallel to
 // the camera's forward axis instead of angling in toward center — it points
 // straight ahead, exactly where the crosshair is looking.
-const flashlight = new THREE.SpotLight(0xfff2d0, 110, 24, THREE.MathUtils.degToRad(27), 0.5, 1.7);
+const FLASHLIGHT_INTENSITY = 110;
+const flashlight = new THREE.SpotLight(0xfff2d0, FLASHLIGHT_INTENSITY, 24, THREE.MathUtils.degToRad(27), 0.5, 1.7);
 // Sits just past the modeled flashlight's lens (measured in camera space), and
 // the target shares its x/y so the cone runs parallel to the camera's forward
 // axis — straight down the barrel, exactly where the crosshair is looking.
@@ -342,6 +343,12 @@ function animate() {
     rifle.update(dt);
     knife.update(dt);
     bloodFx.update(dt);
+
+    // The flashlight lives in the pistol's support hand, so it goes dark while
+    // that hand is busy reloading and fades back in as the hand brings it up.
+    // The other weapons don't hold it, so they leave the beam untouched.
+    const beam = activeSlot === 'pistol' ? weapon.flashlightBlend : 1;
+    flashlight.intensity = FLASHLIGHT_INTENSITY * beam;
 
     const { damageToPlayer } = waveManager.update(dt, camera.position);
     if (damageToPlayer > 0) {

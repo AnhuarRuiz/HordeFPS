@@ -24,6 +24,15 @@ const SWITCH_DROP = 0.55;
 const SWITCH_PULL = 0.12;
 const SWITCH_TILT = 0.9;
 
+// A reload needs both hands, so the support hand drops the flashlight out of
+// the Harries hold (and its beam dies). Once the reload finishes it swings the
+// light back up into position over PRESENT_TIME rather than snapping there, and
+// the beam fades back in as it settles.
+const PRESENT_TIME = 0.55;
+const HARRIES_STOW_OFFSET = new THREE.Vector3(0.05, -0.44, 0.16);
+const HARRIES_STOW_ROLL = -0.8;
+const HARRIES_STOW_PITCH = 0.55;
+
 export interface HitResult {
   object: THREE.Object3D;
   point: THREE.Vector3;
@@ -50,6 +59,8 @@ export class Weapon {
   private magGroup!: THREE.Group;
   private reloadHand!: THREE.Group;
   private harriesHand!: THREE.Group;
+  private harriesAnchor = new THREE.Vector3();
+  private presentTimer = 0;
   private gripPivot!: THREE.Group;
   private tmpVec = new THREE.Vector3();
   private switchOffset = 0;
@@ -97,8 +108,8 @@ export class Weapon {
     // barrel. Visible whenever the pistol isn't mid-reload.
     const harriesHand = buildHarriesHand();
     harriesHand.scale.setScalar(1 / gunScale);
-    const harriesAnchor = gun.userData.harriesAnchor as THREE.Vector3;
-    harriesHand.position.copy(harriesAnchor);
+    this.harriesAnchor.copy(gun.userData.harriesAnchor as THREE.Vector3);
+    harriesHand.position.copy(this.harriesAnchor);
     gun.add(harriesHand);
     this.harriesHand = harriesHand;
 
@@ -287,6 +298,18 @@ export class Weapon {
     return DAMAGE;
   }
 
+  // How lit the handheld flashlight should be: 0 while it's out of the support
+  // hand for a reload, then ramping back to 1 as that hand swings it up into
+  // the Harries hold. Callers scale the actual SpotLight by this.
+  get flashlightBlend(): number {
+    if (this.isReloading) return 0;
+    if (this.presentTimer > 0) {
+      const t = 1 - this.presentTimer / PRESENT_TIME;
+      return 1 - Math.pow(1 - t, 3);
+    }
+    return 1;
+  }
+
   get reloadProgress(): number {
     return this.isReloading ? 1 - this.reloadTimer / RELOAD_TIME : 0;
   }
@@ -404,6 +427,30 @@ export class Weapon {
     }
   }
 
+  // The support hand is gone entirely during a reload (both hands are on the
+  // gun), then swings the flashlight back up into the Harries hold: it rises
+  // from below the frame, rolling and pitching upright as it settles.
+  private updateHarriesHand(dt: number) {
+    if (this.isReloading) {
+      this.harriesHand.visible = false;
+      return;
+    }
+    this.harriesHand.visible = true;
+
+    if (this.presentTimer <= 0) {
+      this.harriesHand.position.copy(this.harriesAnchor);
+      this.harriesHand.rotation.set(0, 0, 0);
+      return;
+    }
+
+    this.presentTimer = Math.max(0, this.presentTimer - dt);
+    const t = 1 - this.presentTimer / PRESENT_TIME;
+    const eased = 1 - Math.pow(1 - t, 3);
+    const away = 1 - eased; // 1 = fully stowed, 0 = fully presented
+    this.harriesHand.position.copy(this.harriesAnchor).addScaledVector(HARRIES_STOW_OFFSET, away);
+    this.harriesHand.rotation.set(HARRIES_STOW_PITCH * away, 0, HARRIES_STOW_ROLL * away);
+  }
+
   update(dt: number) {
     if (this.cooldown > 0) this.cooldown = Math.max(0, this.cooldown - dt);
     this.aimAmount += ((this.aiming ? 1 : 0) - this.aimAmount) * Math.min(1, AIM_LERP_RATE * dt);
@@ -417,10 +464,12 @@ export class Weapon {
         this.reserveAmmo -= taken;
         this.isReloading = false;
         playReloadClick();
+        // Reload done: the support hand now has to bring the flashlight back up.
+        this.presentTimer = PRESENT_TIME;
       }
     }
 
-    this.harriesHand.visible = !this.isReloading;
+    this.updateHarriesHand(dt);
 
     if (this.isReloading) {
       this.applyReloadPose(1 - this.reloadTimer / RELOAD_TIME);
