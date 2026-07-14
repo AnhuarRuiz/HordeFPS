@@ -2,9 +2,12 @@ import * as THREE from 'three';
 import type { CollisionBox } from '../world/Arena.ts';
 
 const EYE_HEIGHT = 1.7;
+const PRONE_EYE_HEIGHT = 0.45;
+const STANCE_LERP_RATE = 6;
 const PLAYER_RADIUS = 0.4;
 const MOVE_SPEED = 6;
 const SPRINT_SPEED = 9.5;
+const PRONE_SPEED = 1.6;
 const ACCEL = 12;
 const DAMPING = 10;
 const JUMP_SPEED = 6.2;
@@ -35,6 +38,9 @@ export class FirstPersonController {
   private touchMoveZ = 0;
   private _locked = false;
   private aiming = false;
+  private prone = false;
+  private eyeHeight = EYE_HEIGHT;
+  private wishLen = 0;
 
   constructor(
     camera: THREE.PerspectiveCamera,
@@ -92,6 +98,24 @@ export class FirstPersonController {
     this.aiming = aiming;
   }
 
+  get isProne(): boolean {
+    return this.prone;
+  }
+
+  // Driven off the wished input direction (not actual velocity) so it flips
+  // the instant a movement key is pressed/released, with no lag from the
+  // accel/damping smoothing applied to the actual velocity.
+  get isMoving(): boolean {
+    return this.wishLen > 0.01;
+  }
+
+  // Edge-triggered toggle: dropping mid-air would leave the eye height lerping
+  // toward the floor while still falling, so it's only allowed while grounded.
+  toggleProne() {
+    if (!this.grounded) return;
+    this.prone = !this.prone;
+  }
+
   addLookDelta(dx: number, dy: number) {
     this.applyLook(dx * TOUCH_LOOK_SENSITIVITY, dy * TOUCH_LOOK_SENSITIVITY);
   }
@@ -147,9 +171,12 @@ export class FirstPersonController {
 
     const wishDir = new THREE.Vector2().addScaledVector(forward, inputZ).addScaledVector(right, inputX);
     if (wishDir.lengthSq() > 1) wishDir.normalize();
+    this.wishLen = wishDir.length();
 
-    const sprinting = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
-    const targetSpeed = (sprinting ? SPRINT_SPEED : MOVE_SPEED) * (this.aiming ? AIM_SPEED_MULT : 1);
+    const sprinting = !this.prone && (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight'));
+    const targetSpeed = this.prone
+      ? PRONE_SPEED
+      : (sprinting ? SPRINT_SPEED : MOVE_SPEED) * (this.aiming ? AIM_SPEED_MULT : 1);
     const targetVel = wishDir.clone().multiplyScalar(targetSpeed);
 
     const rate = wishDir.lengthSq() > 0 ? ACCEL : DAMPING;
@@ -161,7 +188,7 @@ export class FirstPersonController {
     this.resolveCollision(next);
     this.position.copy(next);
 
-    if (this.grounded && this.keys.has('Space')) {
+    if (this.grounded && !this.prone && this.keys.has('Space')) {
       this.verticalVelocity = JUMP_SPEED;
       this.grounded = false;
     }
@@ -173,6 +200,9 @@ export class FirstPersonController {
       this.grounded = true;
     }
 
-    this.camera.position.set(this.position.x, EYE_HEIGHT + this.airborneOffset, this.position.y);
+    const targetEyeHeight = this.prone ? PRONE_EYE_HEIGHT : EYE_HEIGHT;
+    this.eyeHeight += (targetEyeHeight - this.eyeHeight) * Math.min(1, STANCE_LERP_RATE * dt);
+
+    this.camera.position.set(this.position.x, this.eyeHeight + this.airborneOffset, this.position.y);
   }
 }

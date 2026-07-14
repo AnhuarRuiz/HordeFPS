@@ -6,6 +6,7 @@ import { MobileControls, isMobileDevice } from './player/MobileControls.ts';
 import { Weapon } from './weapons/Weapon.ts';
 import { Rifle } from './weapons/Rifle.ts';
 import { Knife } from './weapons/Knife.ts';
+import { CrawlArms } from './weapons/CrawlArms.ts';
 import { WaveManager } from './systems/WaveManager.ts';
 import { BloodEffects } from './systems/BloodEffects.ts';
 import { Hud, type ShopItem } from './ui/Hud.ts';
@@ -118,6 +119,7 @@ const controller = new FirstPersonController(
 const weapon = new Weapon(camera);
 const rifle = new Rifle(camera);
 const knife = new Knife(camera);
+const crawlArms = new CrawlArms(camera);
 const bloodFx = new BloodEffects(scene, arena.solidMeshes);
 const waveManager = new WaveManager(scene, arena.spawnPoints, arena.collisionBoxes, (kind, position) => {
   money += KILL_REWARD[kind];
@@ -172,7 +174,9 @@ function easeOutBack(t: number): number {
 }
 
 function requestSwitch(slot: WeaponSlot) {
-  if (switching || slot === activeSlot) return;
+  // Blocked while the prone-crawl holster/draw is in play so the two systems
+  // never fight over the same weapon's setSwitchOffset in the same frame.
+  if (switching || slot === activeSlot || proneWeaponPhase !== 'weaponOut') return;
   switching = true;
   switchPhase = 'holster';
   switchTimer = 0;
@@ -210,6 +214,67 @@ function updateSwitch(dt: number) {
       switching = false;
     }
   }
+}
+
+// Going prone and crawling forward holsters whatever's in hand and shows both
+// arms dragging the body along; stopping (or standing back up) draws the same
+// weapon back out. Reuses the holster/draw easing curves above so both kinds
+// of "put the gun away" read the same way.
+const PRONE_HOLSTER_TIME = 0.3;
+const PRONE_DRAW_TIME = 0.35;
+
+type ProneWeaponPhase = 'weaponOut' | 'holster' | 'crawling' | 'draw';
+let proneWeaponPhase: ProneWeaponPhase = 'weaponOut';
+let proneWeaponTimer = 0;
+
+function updateProneCrawl(dt: number) {
+  const wantCrawl = controller.isProne && controller.isMoving;
+
+  switch (proneWeaponPhase) {
+    case 'weaponOut':
+      // Held off during a weapon switch so the two state machines never both
+      // try to drive setSwitchOffset on the same frame.
+      if (wantCrawl && !switching) {
+        proneWeaponPhase = 'holster';
+        proneWeaponTimer = 0;
+      }
+      break;
+    case 'holster': {
+      proneWeaponTimer += dt;
+      const t = Math.min(1, proneWeaponTimer / PRONE_HOLSTER_TIME);
+      weaponForSlot(activeSlot).setSwitchOffset(easeInQuad(t));
+      if (t >= 1) {
+        weaponForSlot(activeSlot).setActive(false);
+        crawlArms.setVisible(true);
+        proneWeaponPhase = 'crawling';
+      }
+      break;
+    }
+    case 'crawling':
+      if (!wantCrawl) {
+        crawlArms.setVisible(false);
+        weaponForSlot(activeSlot).setActive(true);
+        weaponForSlot(activeSlot).setSwitchOffset(1);
+        proneWeaponPhase = 'draw';
+        proneWeaponTimer = 0;
+      }
+      break;
+    case 'draw': {
+      proneWeaponTimer += dt;
+      const t = Math.min(1, proneWeaponTimer / PRONE_DRAW_TIME);
+      weaponForSlot(activeSlot).setSwitchOffset(1 - easeOutBack(t));
+      if (t >= 1) {
+        weaponForSlot(activeSlot).setSwitchOffset(0);
+        // Started crawling again before the draw finished settling: go
+        // straight back into the holster beat instead of snapping to rest.
+        proneWeaponPhase = wantCrawl ? 'holster' : 'weaponOut';
+        proneWeaponTimer = 0;
+      }
+      break;
+    }
+  }
+
+  crawlArms.update(dt, proneWeaponPhase === 'crawling');
 }
 
 // The player carries one flashlight, so drawing a weapon means moving it: the
@@ -296,7 +361,11 @@ window.addEventListener('mouseup', (e) => {
   if (e.button === 2) aiming = false;
 });
 window.addEventListener('keydown', (e) => {
-  if (e.code === 'KeyR') {
+  // !e.repeat: this is a toggle (press to drop prone, press again to stand),
+  // not a hold — held keys still repeat keydown, which would otherwise flip
+  // the stance back and forth every frame.
+  if (e.code === 'KeyC' && !e.repeat) controller.toggleProne();
+  if (e.code === 'KeyR' && proneWeaponPhase === 'weaponOut') {
     if (activeSlot === 'pistol') weapon.tryReload();
     else if (activeSlot === 'rifle') rifle.tryReload();
   }
@@ -339,8 +408,9 @@ function animate() {
   if (controller.locked && !gameOver) {
     controller.update(dt);
     updateSwitch(dt);
+    updateProneCrawl(dt);
 
-    const wantAim = aiming && !switching && activeSlot !== 'knife';
+    const wantAim = aiming && !switching && activeSlot !== 'knife' && proneWeaponPhase === 'weaponOut';
     weapon.setAiming(wantAim && activeSlot === 'pistol');
     rifle.setAiming(wantAim && activeSlot === 'rifle');
     controller.setAiming(wantAim);
@@ -350,7 +420,7 @@ function animate() {
       camera.updateProjectionMatrix();
     }
 
-    if (!switching) {
+    if (!switching && proneWeaponPhase === 'weaponOut') {
       const targets: THREE.Object3D[] = [...waveManager.raycastTargets, ...arena.solidMeshes];
       let hit: { object: THREE.Object3D; point: THREE.Vector3; distance: number } | null = null;
       let damage = 0;
@@ -387,16 +457,20 @@ function animate() {
     // Park the SpotLight on whichever model is currently carrying the
     // flashlight — the pistol's support hand or the rifle's side rail — and
     // aim it parallel to the camera's forward axis from there. The knife holds
-    // no light, so it just leaves the beam where it was.
+    // no light, so it just leaves the beam where it was. Both hands are down
+    // crawling during the prone holster/draw beats too, so the beam fades out
+    // rather than tracking the holstered gun's off-screen position.
     let beam = 1;
-    if (activeSlot === 'pistol') {
+    if (proneWeaponPhase !== 'weaponOut') {
+      beam = 0;
+    } else if (activeSlot === 'pistol') {
       beam = weapon.flashlightBlend;
       weapon.getFlashlightEmitter(tmpLightPos);
     } else if (activeSlot === 'rifle') {
       beam = rifle.flashlightBlend;
       rifle.getFlashlightEmitter(tmpLightPos);
     }
-    if (activeSlot !== 'knife') {
+    if (activeSlot !== 'knife' && proneWeaponPhase === 'weaponOut') {
       camera.worldToLocal(tmpLightPos);
       flashlight.position.copy(tmpLightPos);
       flashlightTarget.position.set(tmpLightPos.x, tmpLightPos.y, tmpLightPos.z - 6);
