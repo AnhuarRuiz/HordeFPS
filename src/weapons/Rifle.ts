@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildArm, buildSupportArm } from './Arm.ts';
+import { buildArm, buildFlashlight, buildSupportArm } from './Arm.ts';
 import { playReloadClick, playRifleShot } from '../systems/Audio.ts';
 
 // M4A1: full-auto carbine. Higher rate of fire and range than the pistol, but
@@ -22,9 +22,28 @@ const AIM_OFFSET = new THREE.Vector3(-0.22, 0.06, 0.3);
 const AIM_LERP_RATE = 10;
 
 // How far the viewmodel drops / tilts away while being holstered (0 = drawn).
-const SWITCH_DROP = 0.55;
-const SWITCH_PULL = 0.12;
-const SWITCH_TILT = 0.9;
+// Big enough that offset 1 puts the weapon genuinely off the bottom of the
+// frame. If it is still partly visible when the holster beat ends, the model
+// is switched out while on screen and the animation reads as cut short.
+const SWITCH_DROP = 1.6;
+const SWITCH_PULL = 0.3;
+const SWITCH_TILT = 1.4;
+// A roll away from the body, so holstering reads as the weapon being turned
+// and put down rather than just sliding straight out of frame.
+const SWITCH_ROLL = 0.5;
+
+// The rifle doesn't own a flashlight — the player carries one, and on drawing
+// the rifle the support hand clamps it onto the left rail before taking the
+// foregrip. `p` runs 0→1 across MOUNT_TIME:
+//   0    → SEAT: the hand carries the light in from below-left onto the rail
+//   SEAT → 1   : the hand lets go and slides forward onto the handguard
+// The beam stays dead until the light is actually seated, then fades up.
+const MOUNT_TIME = 0.8;
+const MOUNT_SEAT = 0.62;
+const MOUNT_LIGHT_ON = 0.7;
+// Where the flashlight enters from — down and to the left, back toward the
+// viewer, as if brought up from the Harries hold.
+const MOUNT_CARRY_IN = new THREE.Vector3(-0.16, -0.14, 0.2);
 
 export interface HitResult {
   object: THREE.Object3D;
@@ -57,6 +76,13 @@ export class Rifle {
   private aiming = false;
   private aimAmount = 0;
 
+  private mountedLight!: THREE.Group;
+  private mountEmitter!: THREE.Object3D;
+  private railAnchor = new THREE.Vector3();
+  private mountTimer = 0;
+  private tmpA = new THREE.Vector3();
+  private tmpB = new THREE.Vector3();
+
   constructor(camera: THREE.PerspectiveCamera) {
     this.camera = camera;
     this.raycaster.far = RANGE;
@@ -84,6 +110,17 @@ export class Rifle {
     gun.add(supportMount);
     this.supportHand = supportMount;
     this.supportAnchor.copy(supportMount.position);
+
+    // The player's flashlight, clamped to the left side rail. It's parented to
+    // the gun (not the hand) so it stays put once seated; the mount animation
+    // just walks it in from off to the left before letting it rest here.
+    const mountedLight = buildFlashlight();
+    mountedLight.scale.setScalar(1 / gunScale);
+    this.railAnchor.copy(gun.userData.railAnchor as THREE.Vector3);
+    mountedLight.position.copy(this.railAnchor);
+    gun.add(mountedLight);
+    this.mountedLight = mountedLight;
+    this.mountEmitter = mountedLight.userData.emitter as THREE.Object3D;
 
     const fillLight = new THREE.PointLight(0xfff2e0, 0.85, 3);
     fillLight.position.set(0.35, 0.4, 0.5);
@@ -212,6 +249,12 @@ export class Rifle {
     handguardRail.position.set(0, 0.036, handguardZ);
     gun.add(handguardRail);
 
+    // Side rail on the left of the handguard — the mount the flashlight clamps
+    // onto when the rifle is drawn.
+    const sideRail = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.022, handguardLen * 0.8), railMat);
+    sideRail.position.set(-0.036, 0, handguardZ);
+    gun.add(sideRail);
+
     // Barrel poking past the handguard, front sight tower (gas block), and a
     // birdcage flash hider at the muzzle.
     const handguardFront = handguardZ - handguardLen / 2;
@@ -282,6 +325,8 @@ export class Rifle {
     gun.userData.gripPivot = gripPivot;
     // Where the support hand wraps the handguard (its underside, mid-length).
     gun.userData.supportAnchor = new THREE.Vector3(0, -0.028, handguardZ + 0.02);
+    // Where the flashlight sits once clamped to the left side rail.
+    gun.userData.railAnchor = new THREE.Vector3(-0.062, 0, handguardZ - 0.01);
 
     return gun;
   }
@@ -307,6 +352,25 @@ export class Rifle {
     return DAMAGE;
   }
 
+  // Drawn: the support hand still has the flashlight from the pistol's Harries
+  // hold, so it clamps it to the side rail before taking the foregrip.
+  startMount() {
+    this.mountTimer = MOUNT_TIME;
+  }
+
+  // Dark until the light is actually seated on the rail, then fades up.
+  get flashlightBlend(): number {
+    if (this.mountTimer <= 0) return 1;
+    const p = 1 - this.mountTimer / MOUNT_TIME;
+    if (p < MOUNT_LIGHT_ON) return 0;
+    return (p - MOUNT_LIGHT_ON) / (1 - MOUNT_LIGHT_ON);
+  }
+
+  // Where the beam physically leaves the model right now.
+  getFlashlightEmitter(out: THREE.Vector3): THREE.Vector3 {
+    return this.mountEmitter.getWorldPosition(out);
+  }
+
   get reloadProgress(): number {
     return this.isReloading ? 1 - this.reloadTimer / RELOAD_TIME : 0;
   }
@@ -317,6 +381,13 @@ export class Rifle {
 
   tryReload() {
     if (this.isReloading || this.ammoInMag === MAG_SIZE || this.reserveAmmo === 0) return;
+    // A reload wants the support hand, so abandon any in-flight mount and snap
+    // the flashlight home — otherwise the two animations would fight over it.
+    if (this.mountTimer > 0) {
+      this.mountTimer = 0;
+      this.mountedLight.position.copy(this.railAnchor);
+      this.mountedLight.rotation.set(0, 0, 0);
+    }
     this.isReloading = true;
     this.reloadTimer = RELOAD_TIME;
     playReloadClick();
@@ -406,6 +477,55 @@ export class Rifle {
     this.chargingHandle.position.z = this.chargeRestZ + charge * 0.09;
   }
 
+  // Walks the flashlight in from below-left onto the side rail, with the
+  // support hand carrying it, then releases the hand forward onto the
+  // handguard. Returns true while it owns the support hand's pose.
+  private applyMountPose(dt: number): boolean {
+    if (this.mountTimer <= 0) return false;
+    this.mountTimer = Math.max(0, this.mountTimer - dt);
+    const p = 1 - this.mountTimer / MOUNT_TIME;
+
+    // Flashlight travel: carried in, easing out, with a small settle push once
+    // it hits the rail so the clamp reads as a physical click.
+    const carry = this.tmpA.copy(this.railAnchor).add(MOUNT_CARRY_IN);
+    const light = this.tmpB;
+    if (p < MOUNT_SEAT) {
+      const t = p / MOUNT_SEAT;
+      const e = 1 - Math.pow(1 - t, 3);
+      light.copy(carry).lerp(this.railAnchor, e);
+    } else {
+      // Seated: a brief inward nudge that springs back to rest.
+      const settle = Math.min(1, (p - MOUNT_SEAT) / 0.12);
+      const push = Math.sin(settle * Math.PI) * 0.008;
+      light.copy(this.railAnchor);
+      light.x += push;
+    }
+    this.mountedLight.position.copy(light);
+    // Canted while being carried, straightening as it seats.
+    const cant = p < MOUNT_SEAT ? (1 - p / MOUNT_SEAT) * 0.5 : 0;
+    this.mountedLight.rotation.set(cant * 0.4, -cant * 0.6, cant);
+
+    // Support hand: rides the flashlight in, then peels off to the foregrip.
+    if (p < MOUNT_SEAT) {
+      this.supportHand.position.set(light.x - 0.02, light.y - 0.03, light.z + 0.05);
+    } else {
+      const t = Math.min(1, (p - MOUNT_SEAT) / (1 - MOUNT_SEAT));
+      const e = 1 - Math.pow(1 - t, 2);
+      this.supportHand.position.set(
+        light.x - 0.02 + (this.supportAnchor.x - (light.x - 0.02)) * e,
+        light.y - 0.03 + (this.supportAnchor.y - (light.y - 0.03)) * e,
+        light.z + 0.05 + (this.supportAnchor.z - (light.z + 0.05)) * e,
+      );
+    }
+
+    if (this.mountTimer <= 0) {
+      this.mountedLight.position.copy(this.railAnchor);
+      this.mountedLight.rotation.set(0, 0, 0);
+      this.supportHand.position.copy(this.supportAnchor);
+    }
+    return true;
+  }
+
   update(dt: number) {
     if (this.cooldown > 0) this.cooldown = Math.max(0, this.cooldown - dt);
     this.aimAmount += ((this.aiming ? 1 : 0) - this.aimAmount) * Math.min(1, AIM_LERP_RATE * dt);
@@ -434,7 +554,11 @@ export class Rifle {
       this.viewModel.rotation.set(0, 0, 0);
       this.magPivot.position.y = this.magRestY;
       this.chargingHandle.position.z = this.chargeRestZ;
-      this.supportHand.position.copy(this.supportAnchor);
+      // The mount animation owns the support hand (and the flashlight) while it
+      // runs; only park them at rest once it's done.
+      if (!this.applyMountPose(dt)) {
+        this.supportHand.position.copy(this.supportAnchor);
+      }
     }
 
     if (this.muzzleFlashTimer > 0) {
@@ -447,10 +571,13 @@ export class Rifle {
     }
 
     // Holster/draw offset applied on top of the freshly-set pose each frame.
-    if (this.switchOffset > 0) {
+    // Note this runs for negative offsets too: the draw eases slightly past rest
+    // so the weapon overshoots upward and rocks back into place.
+    if (this.switchOffset !== 0) {
       this.viewModel.position.y -= this.switchOffset * SWITCH_DROP;
       this.viewModel.position.z -= this.switchOffset * SWITCH_PULL;
       this.viewModel.rotation.x += this.switchOffset * SWITCH_TILT;
+      this.viewModel.rotation.z += this.switchOffset * SWITCH_ROLL;
     }
   }
 }

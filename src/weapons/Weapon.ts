@@ -20,9 +20,15 @@ const AIM_OFFSET = new THREE.Vector3(-0.2, 0.05, 0.28);
 const AIM_LERP_RATE = 10;
 
 // How far the viewmodel drops / tilts away while being holstered (0 = drawn).
-const SWITCH_DROP = 0.55;
-const SWITCH_PULL = 0.12;
-const SWITCH_TILT = 0.9;
+// Big enough that offset 1 puts the weapon genuinely off the bottom of the
+// frame. If it is still partly visible when the holster beat ends, the model
+// is switched out while on screen and the animation reads as cut short.
+const SWITCH_DROP = 1.6;
+const SWITCH_PULL = 0.3;
+const SWITCH_TILT = 1.4;
+// A roll away from the body, so holstering reads as the weapon being turned
+// and put down rather than just sliding straight out of frame.
+const SWITCH_ROLL = 0.5;
 
 // A reload needs both hands, so it runs as a three-beat sequence rather than
 // the flashlight simply blinking out of existence:
@@ -68,6 +74,7 @@ export class Weapon {
   private magGroup!: THREE.Group;
   private reloadHand!: THREE.Group;
   private harriesHand!: THREE.Group;
+  private harriesEmitter!: THREE.Object3D;
   private harriesAnchor = new THREE.Vector3();
   private presentTimer = 0;
   private gripPivot!: THREE.Group;
@@ -121,6 +128,8 @@ export class Weapon {
     harriesHand.position.copy(this.harriesAnchor);
     gun.add(harriesHand);
     this.harriesHand = harriesHand;
+    const harriesLight = harriesHand.userData.flashlight as THREE.Group;
+    this.harriesEmitter = harriesLight.userData.emitter as THREE.Object3D;
 
     const fillLight = new THREE.PointLight(0xfff2e0, 0.85, 3);
     fillLight.position.set(0.35, 0.4, 0.5);
@@ -319,6 +328,22 @@ export class Weapon {
   // always tracks the hand that's carrying it.
   get flashlightBlend(): number {
     return 1 - this.harriesAway;
+  }
+
+  // Where the beam physically leaves the model right now, so the caller can
+  // park the real SpotLight there.
+  getFlashlightEmitter(out: THREE.Vector3): THREE.Vector3 {
+    return this.harriesEmitter.getWorldPosition(out);
+  }
+
+  // Drawn from another weapon: the support hand has to bring the flashlight
+  // back up into the Harries hold, rather than it just materializing.
+  startPresent() {
+    if (this.isReloading) return;
+    this.phase = 'present';
+    this.presentTimer = PRESENT_TIME;
+    this.harriesAway = 1;
+    this.updateHarriesHand();
   }
 
   get reloadProgress(): number {
@@ -532,10 +557,13 @@ export class Weapon {
     }
 
     // Holster/draw offset applied on top of the freshly-set pose each frame.
-    if (this.switchOffset > 0) {
+    // Note this runs for negative offsets too: the draw eases slightly past rest
+    // so the weapon overshoots upward and rocks back into place.
+    if (this.switchOffset !== 0) {
       this.viewModel.position.y -= this.switchOffset * SWITCH_DROP;
       this.viewModel.position.z -= this.switchOffset * SWITCH_PULL;
       this.viewModel.rotation.x += this.switchOffset * SWITCH_TILT;
+      this.viewModel.rotation.z += this.switchOffset * SWITCH_ROLL;
     }
   }
 }

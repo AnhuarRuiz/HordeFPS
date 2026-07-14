@@ -118,6 +118,14 @@ export function buildFlashlight(): THREE.Group {
   tailcap.position.set(0, 0, bodyLen / 2 + 0.011);
   group.add(tailcap);
 
+  // Empty marker just in front of the lens. Weapons expose its world position
+  // so the real SpotLight can be parked exactly where the beam leaves the
+  // model, wherever the flashlight currently happens to be carried or mounted.
+  const emitter = new THREE.Object3D();
+  emitter.position.set(0, 0, -bodyLen / 2 - 0.06);
+  group.add(emitter);
+  group.userData.emitter = emitter;
+
   return group;
 }
 
@@ -185,6 +193,7 @@ export function buildHarriesHand(): THREE.Group {
   const flashlight = buildFlashlight();
   flashlight.position.set(0.012, -0.045, -0.11);
   root.add(flashlight);
+  root.userData.flashlight = flashlight;
 
   return root;
 }

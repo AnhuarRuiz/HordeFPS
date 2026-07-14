@@ -143,18 +143,38 @@ function setActiveSlot(slot: WeaponSlot) {
 }
 setActiveSlot('pistol');
 
-// Weapon switch animation: the current weapon lowers off screen, then the new
-// one is raised into view.
-const SWITCH_TIME = 0.14;
+// Weapon switch, as a visible three-beat gesture rather than a blink:
+//   holster - the current weapon is put away, dropping and rolling off screen
+//   empty   - a short beat with nothing in hand, which sells the hand-off
+//   draw    - the new weapon is pulled up into view and settles
+// setSwitchOffset() takes 1 = fully stowed, 0 = at rest; the draw eases past 0
+// slightly so the weapon overshoots and rocks back instead of stopping dead.
+const HOLSTER_TIME = 0.45;
+const EMPTY_TIME = 0.16;
+const DRAW_TIME = 0.6;
+
+type SwitchPhase = 'holster' | 'empty' | 'draw';
 let switching = false;
-let switchPhase: 'lower' | 'raise' = 'lower';
+let switchPhase: SwitchPhase = 'holster';
 let switchTimer = 0;
 let switchTo: WeaponSlot = 'pistol';
+
+// Accelerates away — the weapon is pushed down out of frame with intent.
+function easeInQuad(t: number): number {
+  return t * t;
+}
+
+// Comes up fast, overshoots a touch, then settles back to rest.
+function easeOutBack(t: number): number {
+  const c1 = 1.70158;
+  const c3 = c1 + 1;
+  return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+}
 
 function requestSwitch(slot: WeaponSlot) {
   if (switching || slot === activeSlot) return;
   switching = true;
-  switchPhase = 'lower';
+  switchPhase = 'holster';
   switchTimer = 0;
   switchTo = slot;
 }
@@ -162,25 +182,42 @@ function requestSwitch(slot: WeaponSlot) {
 function updateSwitch(dt: number) {
   if (!switching) return;
   switchTimer += dt;
-  const t = Math.min(1, switchTimer / SWITCH_TIME);
-  if (switchPhase === 'lower') {
-    weaponForSlot(activeSlot).setSwitchOffset(t);
+
+  if (switchPhase === 'holster') {
+    const t = Math.min(1, switchTimer / HOLSTER_TIME);
+    weaponForSlot(activeSlot).setSwitchOffset(easeInQuad(t));
     if (t >= 1) {
+      // Stowed: hide the old weapon and swap in the new one, still off screen.
       weaponForSlot(activeSlot).setActive(false);
       activeSlot = switchTo;
       weaponForSlot(activeSlot).setActive(true);
       weaponForSlot(activeSlot).setSwitchOffset(1);
       mobileControls?.setActiveWeapon(activeSlot);
-      switchPhase = 'raise';
+      switchPhase = 'empty';
+      switchTimer = 0;
+    }
+  } else if (switchPhase === 'empty') {
+    if (switchTimer >= EMPTY_TIME) {
+      onWeaponDrawn(activeSlot);
+      switchPhase = 'draw';
       switchTimer = 0;
     }
   } else {
-    weaponForSlot(activeSlot).setSwitchOffset(1 - t);
+    const t = Math.min(1, switchTimer / DRAW_TIME);
+    weaponForSlot(activeSlot).setSwitchOffset(1 - easeOutBack(t));
     if (t >= 1) {
       weaponForSlot(activeSlot).setSwitchOffset(0);
       switching = false;
     }
   }
+}
+
+// The player carries one flashlight, so drawing a weapon means moving it: the
+// pistol brings it back up into the Harries hold, the rifle clamps it onto its
+// side rail. Both animations kill the beam until the light is settled.
+function onWeaponDrawn(slot: WeaponSlot) {
+  if (slot === 'pistol') weapon.startPresent();
+  else if (slot === 'rifle') rifle.startMount();
 }
 
 let isMouseDown = false;
@@ -289,6 +326,9 @@ function endGame() {
 
 let shopVisible = false;
 
+// Scratch vector for relocating the SpotLight onto the flashlight each frame.
+const tmpLightPos = new THREE.Vector3();
+
 const clock = new THREE.Clock();
 
 function animate() {
@@ -344,10 +384,23 @@ function animate() {
     knife.update(dt);
     bloodFx.update(dt);
 
-    // The flashlight lives in the pistol's support hand, so it goes dark while
-    // that hand is busy reloading and fades back in as the hand brings it up.
-    // The other weapons don't hold it, so they leave the beam untouched.
-    const beam = activeSlot === 'pistol' ? weapon.flashlightBlend : 1;
+    // Park the SpotLight on whichever model is currently carrying the
+    // flashlight — the pistol's support hand or the rifle's side rail — and
+    // aim it parallel to the camera's forward axis from there. The knife holds
+    // no light, so it just leaves the beam where it was.
+    let beam = 1;
+    if (activeSlot === 'pistol') {
+      beam = weapon.flashlightBlend;
+      weapon.getFlashlightEmitter(tmpLightPos);
+    } else if (activeSlot === 'rifle') {
+      beam = rifle.flashlightBlend;
+      rifle.getFlashlightEmitter(tmpLightPos);
+    }
+    if (activeSlot !== 'knife') {
+      camera.worldToLocal(tmpLightPos);
+      flashlight.position.copy(tmpLightPos);
+      flashlightTarget.position.set(tmpLightPos.x, tmpLightPos.y, tmpLightPos.z - 6);
+    }
     flashlight.intensity = FLASHLIGHT_INTENSITY * beam;
 
     const { damageToPlayer } = waveManager.update(dt, camera.position);

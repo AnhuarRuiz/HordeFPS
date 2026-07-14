@@ -14,9 +14,15 @@ const VIEWMODEL_DISTANCE = 0.95;
 const VIEWMODEL_SCALE = 2.1;
 
 // How far the viewmodel drops / tilts away while being holstered (0 = drawn).
-const SWITCH_DROP = 0.55;
-const SWITCH_PULL = 0.12;
-const SWITCH_TILT = 0.9;
+// Big enough that offset 1 puts the weapon genuinely off the bottom of the
+// frame. If it is still partly visible when the holster beat ends, the model
+// is switched out while on screen and the animation reads as cut short.
+const SWITCH_DROP = 1.6;
+const SWITCH_PULL = 0.3;
+const SWITCH_TILT = 1.4;
+// A roll away from the body, so holstering reads as the weapon being turned
+// and put down rather than just sliding straight out of frame.
+const SWITCH_ROLL = 0.5;
 
 // An aggressive, committed stab. Windup cocks the knife back and up while the
 // blade pitches to aim its point forward at the target; the strike then drives
@@ -208,10 +214,13 @@ export class Knife {
     }
 
     // Holster/draw offset applied on top of the freshly-set pose each frame.
-    if (this.switchOffset > 0) {
+    // Note this runs for negative offsets too: the draw eases slightly past rest
+    // so the weapon overshoots upward and rocks back into place.
+    if (this.switchOffset !== 0) {
       this.viewModel.position.y -= this.switchOffset * SWITCH_DROP;
       this.viewModel.position.z -= this.switchOffset * SWITCH_PULL;
       this.viewModel.rotation.x += this.switchOffset * SWITCH_TILT;
+      this.viewModel.rotation.z += this.switchOffset * SWITCH_ROLL;
     }
   }
 
