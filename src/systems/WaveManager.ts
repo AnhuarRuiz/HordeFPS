@@ -1,9 +1,12 @@
 import * as THREE from 'three';
 import { Zombie, type ZombieKind } from '../entities/Zombie.ts';
 import type { CollisionBox } from '../world/Arena.ts';
+import { playWaveStart, playZombieDeath } from './Audio.ts';
 
 const SPAWN_INTERVAL = 0.55;
-const INTERMISSION_TIME = 4.5;
+// Long enough to read the shop and spend the wave's earnings before the next
+// horde spawns.
+const INTERMISSION_TIME = 12;
 
 export type WaveState = 'spawning' | 'active' | 'intermission';
 
@@ -21,7 +24,7 @@ export class WaveManager {
   private scene: THREE.Scene;
   private spawnPoints: THREE.Vector3[];
   private collisionBoxes: CollisionBox[];
-  private onZombieKilled: (kind: ZombieKind) => void;
+  private onZombieKilled: (kind: ZombieKind, position: THREE.Vector3) => void;
 
   private queue: ZombieKind[] = [];
   private spawnTimer = 0;
@@ -31,7 +34,7 @@ export class WaveManager {
     scene: THREE.Scene,
     spawnPoints: THREE.Vector3[],
     collisionBoxes: CollisionBox[],
-    onZombieKilled: (kind: ZombieKind) => void,
+    onZombieKilled: (kind: ZombieKind, position: THREE.Vector3) => void,
   ) {
     this.scene = scene;
     this.spawnPoints = spawnPoints;
@@ -44,7 +47,9 @@ export class WaveManager {
   }
 
   get raycastTargets(): THREE.Object3D[] {
-    return this.alive.map((z) => z.hitbox);
+    const targets: THREE.Object3D[] = [];
+    for (const z of this.alive) targets.push(...z.hitboxes);
+    return targets;
   }
 
   private buildWaveQueue(wave: number): ZombieKind[] {
@@ -65,6 +70,7 @@ export class WaveManager {
     this.queue = this.buildWaveQueue(this.waveNumber);
     this.spawnTimer = 0;
     this.state = 'spawning';
+    playWaveStart();
   }
 
   private spawnOne(kind: ZombieKind) {
@@ -106,13 +112,15 @@ export class WaveManager {
         this.alive.splice(i, 1);
         zombie.startDeath();
         this.dying.push(zombie);
-        this.onZombieKilled(zombie.kind);
+        this.onZombieKilled(zombie.kind, zombie.group.position.clone());
+        playZombieDeath(zombie.group.position.distanceTo(playerPos));
       }
     }
 
     for (let i = this.dying.length - 1; i >= 0; i--) {
       if (this.dying[i].updateDeath(dt)) {
         this.scene.remove(this.dying[i].group);
+        this.dying[i].dispose();
         this.dying.splice(i, 1);
       }
     }

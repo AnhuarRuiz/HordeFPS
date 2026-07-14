@@ -7,20 +7,58 @@ import { Weapon } from './weapons/Weapon.ts';
 import { Rifle } from './weapons/Rifle.ts';
 import { Knife } from './weapons/Knife.ts';
 import { WaveManager } from './systems/WaveManager.ts';
-import { Hud } from './ui/Hud.ts';
-import type { Zombie } from './entities/Zombie.ts';
+import { BloodEffects } from './systems/BloodEffects.ts';
+import { Hud, type ShopItem } from './ui/Hud.ts';
+import type { Zombie, ZombieKind } from './entities/Zombie.ts';
+import { playDenied, playImpact, playPlayerHurt, playPurchase, playZombieHit, unlockAudio } from './systems/Audio.ts';
 
-const PLAYER_MAX_HEALTH = 100;
+const PLAYER_MAX_HEALTH_START = 100;
+const HEADSHOT_MULTIPLIER = 2.5;
+const BASE_FOV = 78;
+const AIM_FOV = 62;
+const FOV_LERP_RATE = 10;
+
+const KILL_REWARD: Record<ZombieKind, number> = { shambler: 10, runner: 14, brute: 35 };
+
+const SHOP_ITEMS: ShopItem[] = [
+  { key: '4', label: 'Recargar munición', price: 40 },
+  { key: '5', label: 'Botiquín (+50 HP)', price: 35 },
+  { key: '6', label: '+20 HP máxima', price: 120 },
+];
 
 const appEl = document.querySelector<HTMLDivElement>('#app')!;
 const mobile = isMobileDevice();
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0d0e12);
-scene.fog = new THREE.Fog(0x0d0e12, 18, 42);
+scene.background = new THREE.Color(0x030304);
+// Short, oppressive fog — Silent Hill style, where the flashlight cone is
+// nearly the only thing cutting through the dark.
+scene.fog = new THREE.Fog(0x030304, 3.5, 15);
 
-const camera = new THREE.PerspectiveCamera(78, window.innerWidth / window.innerHeight, 0.05, 100);
+const camera = new THREE.PerspectiveCamera(BASE_FOV, window.innerWidth / window.innerHeight, 0.05, 100);
 scene.add(camera);
+
+// Handheld flashlight: light only, no modeled housing — it rides where the
+// weapon sits so the beam reads as coming from the gun. The target shares the
+// light's x/y offset (just much farther in z) so the cone runs parallel to
+// the camera's forward axis instead of angling in toward center — it points
+// straight ahead, exactly where the crosshair is looking.
+const flashlight = new THREE.SpotLight(0xfff2d0, 110, 24, THREE.MathUtils.degToRad(27), 0.5, 1.7);
+// Sits just past the modeled flashlight's lens (measured in camera space), and
+// the target shares its x/y so the cone runs parallel to the camera's forward
+// axis — straight down the barrel, exactly where the crosshair is looking.
+flashlight.position.set(0.55, -0.45, -1.8);
+camera.add(flashlight);
+const flashlightTarget = new THREE.Object3D();
+flashlightTarget.position.set(0.55, -0.45, -8);
+camera.add(flashlightTarget);
+flashlight.target = flashlightTarget;
+
+let flashlightOn = true;
+function setFlashlight(on: boolean) {
+  flashlightOn = on;
+  flashlight.visible = on;
+}
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -47,6 +85,7 @@ const arena = buildArena();
 scene.add(arena.group);
 
 const hud = new Hud(appEl);
+hud.setShopItems(SHOP_ITEMS);
 if (mobile) {
   hud.setOverlayInstructions(
     'Joystick mover · Arrastra para mirar · Botón rojo dispara y apunta · Toca un arma para cambiar',
@@ -54,7 +93,9 @@ if (mobile) {
   document.body.classList.add('mobile-layout');
 }
 
-let playerHealth = PLAYER_MAX_HEALTH;
+let playerHealth = PLAYER_MAX_HEALTH_START;
+let playerMaxHealth = PLAYER_MAX_HEALTH_START;
+let money = 0;
 let gameOver = false;
 
 const controller = new FirstPersonController(
@@ -64,14 +105,23 @@ const controller = new FirstPersonController(
   arena.bounds,
   arena.playerStart,
   (locked) => {
-    if (!locked && !gameOver && !mobile) hud.showOverlay('PAUSADO', 'Click para continuar');
+    if (!locked) {
+      isMouseDown = false;
+      pistolTriggerPressed = false;
+      aiming = false;
+      if (!gameOver && !mobile) hud.showOverlay('PAUSADO', 'Click para continuar');
+    }
   },
 );
 
 const weapon = new Weapon(camera);
 const rifle = new Rifle(camera);
 const knife = new Knife(camera);
-const waveManager = new WaveManager(scene, arena.spawnPoints, arena.collisionBoxes, () => {});
+const bloodFx = new BloodEffects(scene);
+const waveManager = new WaveManager(scene, arena.spawnPoints, arena.collisionBoxes, (kind, position) => {
+  money += KILL_REWARD[kind];
+  bloodFx.spawnPool(position);
+});
 
 type WeaponSlot = 'pistol' | 'rifle' | 'knife';
 let activeSlot: WeaponSlot = 'pistol';
@@ -133,17 +183,45 @@ function updateSwitch(dt: number) {
 }
 
 let isMouseDown = false;
+// Semi-auto edge trigger: the pistol fires once per press, not continuously.
+let pistolTriggerPressed = false;
+let aiming = false;
+
+function startFiring() {
+  isMouseDown = true;
+  pistolTriggerPressed = true;
+}
+function stopFiring() {
+  isMouseDown = false;
+}
+
+function attemptPurchase(key: string) {
+  if (waveManager.state !== 'intermission' || gameOver) return;
+  const item = SHOP_ITEMS.find((i) => i.key === key);
+  if (!item || money < item.price) {
+    playDenied();
+    return;
+  }
+  money -= item.price;
+  if (key === '4') {
+    weapon.addReserveAmmo(999);
+    rifle.addReserveAmmo(999);
+  } else if (key === '5') {
+    playerHealth = Math.min(playerMaxHealth, playerHealth + 50);
+  } else if (key === '6') {
+    playerMaxHealth += 20;
+    playerHealth = Math.min(playerMaxHealth, playerHealth + 20);
+  }
+  hud.setMoney(money);
+  playPurchase();
+}
 
 const mobileControls = mobile
   ? new MobileControls(appEl, {
       onMove: (x, z) => controller.setTouchMove(x, z),
       onLook: (dx, dy) => controller.addLookDelta(dx, dy),
-      onFireStart: () => {
-        isMouseDown = true;
-      },
-      onFireEnd: () => {
-        isMouseDown = false;
-      },
+      onFireStart: () => startFiring(),
+      onFireEnd: () => stopFiring(),
       onJumpStart: () => controller.press('Space'),
       onJumpEnd: () => controller.release('Space'),
       onReload: () => {
@@ -151,11 +229,13 @@ const mobileControls = mobile
         else if (activeSlot === 'rifle') rifle.tryReload();
       },
       onSelectWeapon: (slot) => requestSwitch(slot),
+      onBuy: (key) => attemptPurchase(key),
     })
   : null;
 mobileControls?.setActiveWeapon(activeSlot);
 
 hud.onOverlayClick(() => {
+  unlockAudio();
   if (gameOver) {
     window.location.reload();
     return;
@@ -170,10 +250,12 @@ hud.onOverlayClick(() => {
 });
 
 renderer.domElement.addEventListener('mousedown', (e) => {
-  if (e.button === 0) isMouseDown = true;
+  if (e.button === 0) startFiring();
+  if (e.button === 2) aiming = true;
 });
 window.addEventListener('mouseup', (e) => {
-  if (e.button === 0) isMouseDown = false;
+  if (e.button === 0) stopFiring();
+  if (e.button === 2) aiming = false;
 });
 window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyR') {
@@ -183,6 +265,10 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Digit1') requestSwitch('pistol');
   if (e.code === 'Digit2') requestSwitch('rifle');
   if (e.code === 'Digit3') requestSwitch('knife');
+  if (e.code === 'Digit4') attemptPurchase('4');
+  if (e.code === 'Digit5') attemptPurchase('5');
+  if (e.code === 'Digit6') attemptPurchase('6');
+  if (e.code === 'KeyF') setFlashlight(!flashlightOn);
 });
 window.addEventListener('contextmenu', (e) => e.preventDefault());
 window.addEventListener('resize', syncViewportSize);
@@ -191,51 +277,82 @@ window.addEventListener('orientationchange', syncViewportSize);
 function endGame() {
   gameOver = true;
   isMouseDown = false;
+  pistolTriggerPressed = false;
+  aiming = false;
   document.exitPointerLock();
   mobileControls?.setVisible(false);
+  hud.hideShop();
+  mobileControls?.setShopVisible(false);
   hud.showOverlay('HAS MUERTO', `Sobreviviste hasta la oleada ${waveManager.waveNumber}. Click para reintentar.`);
 }
+
+let shopVisible = false;
 
 const clock = new THREE.Clock();
 
 function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.05);
+  arena.updateMist(clock.elapsedTime);
 
   if (controller.locked && !gameOver) {
     controller.update(dt);
     updateSwitch(dt);
 
-    if (isMouseDown && !switching) {
-      let hit = null;
+    const wantAim = aiming && !switching && activeSlot !== 'knife';
+    weapon.setAiming(wantAim && activeSlot === 'pistol');
+    rifle.setAiming(wantAim && activeSlot === 'rifle');
+    controller.setAiming(wantAim);
+    const targetFov = wantAim ? AIM_FOV : BASE_FOV;
+    if (Math.abs(camera.fov - targetFov) > 0.01) {
+      camera.fov += (targetFov - camera.fov) * Math.min(1, FOV_LERP_RATE * dt);
+      camera.updateProjectionMatrix();
+    }
+
+    if (!switching) {
+      const targets: THREE.Object3D[] = [...waveManager.raycastTargets, ...arena.solidMeshes];
+      let hit: { object: THREE.Object3D; point: THREE.Vector3; distance: number } | null = null;
       let damage = 0;
-      if (activeSlot === 'pistol') {
-        hit = weapon.fire(waveManager.raycastTargets);
+      if (activeSlot === 'pistol' && pistolTriggerPressed) {
+        pistolTriggerPressed = false;
+        hit = weapon.fire(targets);
         damage = weapon.damage;
-      } else if (activeSlot === 'rifle') {
-        hit = rifle.fire(waveManager.raycastTargets);
+      } else if (activeSlot === 'rifle' && isMouseDown) {
+        hit = rifle.fire(targets);
         damage = rifle.damage;
-      } else {
-        hit = knife.swing(waveManager.raycastTargets);
+      } else if (activeSlot === 'knife' && isMouseDown) {
+        hit = knife.swing(targets);
         damage = knife.damage;
       }
       if (hit) {
         const zombie = hit.object.userData.zombieRef as Zombie | undefined;
-        zombie?.takeDamage(damage);
+        if (zombie) {
+          const isHeadshot = hit.object.userData.zone === 'head';
+          zombie.takeDamage(damage * (isHeadshot ? HEADSHOT_MULTIPLIER : 1));
+          zombie.flashHit(isHeadshot);
+          hud.showHitmarker(isHeadshot);
+          playZombieHit(hit.distance, isHeadshot);
+          bloodFx.spawnHit(hit.point, isHeadshot);
+        } else {
+          playImpact();
+        }
       }
     }
     weapon.update(dt);
     rifle.update(dt);
     knife.update(dt);
+    bloodFx.update(dt);
 
     const { damageToPlayer } = waveManager.update(dt, camera.position);
     if (damageToPlayer > 0) {
       playerHealth = Math.max(0, playerHealth - damageToPlayer);
       hud.flashHit();
+      playPlayerHurt();
       if (playerHealth <= 0 && !gameOver) endGame();
     }
 
-    hud.setHealth(playerHealth, PLAYER_MAX_HEALTH);
+    hud.setHealth(playerHealth, playerMaxHealth);
+    hud.setMoney(money);
     if (activeSlot === 'pistol') {
       hud.setAmmo(weapon.ammoInMag, weapon.reserveAmmo, weapon.isReloading);
     } else if (activeSlot === 'rifle') {
@@ -244,6 +361,24 @@ function animate() {
       hud.showMelee();
     }
     hud.setWaveInfo(waveManager.waveNumber, waveManager.zombiesRemaining, waveManager.state, waveManager.intermissionRemaining);
+
+    const wantShop = waveManager.state === 'intermission';
+    if (wantShop !== shopVisible) {
+      shopVisible = wantShop;
+      if (shopVisible) {
+        hud.showShop();
+        mobileControls?.setShopVisible(true);
+      } else {
+        hud.hideShop();
+        mobileControls?.setShopVisible(false);
+      }
+    }
+    if (shopVisible) {
+      hud.updateShop(money, waveManager.intermissionRemaining, (key) => {
+        const item = SHOP_ITEMS.find((i) => i.key === key);
+        return !!item && money >= item.price;
+      });
+    }
   }
 
   renderer.render(scene, camera);

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { buildArm } from './Arm.ts';
+import { playKnifeSwing } from '../systems/Audio.ts';
 
 const ATTACK_INTERVAL = 0.36;
 const WINDUP_TIME = 0.09;
@@ -177,6 +178,7 @@ export class Knife {
     this.cooldown = ATTACK_INTERVAL;
     this.swinging = true;
     this.swingElapsed = 0;
+    playKnifeSwing();
 
     this.raycaster.setFromCamera(new THREE.Vector2(0, 0), this.camera);
     const hits = this.raycaster.intersectObjects(targets, true);

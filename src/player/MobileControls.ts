@@ -9,7 +9,14 @@ export interface MobileControlsCallbacks {
   onJumpEnd: () => void;
   onReload: () => void;
   onSelectWeapon: (slot: WeaponSlotId) => void;
+  onBuy: (key: string) => void;
 }
+
+const SHOP_BUTTONS: { key: string; glyph: string; label: string }[] = [
+  { key: '4', glyph: '⛁', label: 'Recargar munición' },
+  { key: '5', glyph: '✚', label: 'Botiquín' },
+  { key: '6', glyph: '♥', label: 'Vida máxima' },
+];
 
 const JOYSTICK_RADIUS = 55;
 
@@ -45,6 +52,7 @@ export class MobileControls {
   private lastFireX = 0;
   private lastFireY = 0;
   private weaponSlots: HTMLButtonElement[] = [];
+  private shopDock: HTMLDivElement;
 
   constructor(container: HTMLElement, callbacks: MobileControlsCallbacks) {
     this.root = document.createElement('div');
@@ -61,9 +69,17 @@ export class MobileControls {
       )
       .join('');
 
+    const shopButtons = SHOP_BUTTONS.map(
+      (item) => `
+        <button class="mobile-btn shop-buy-btn" data-key="${item.key}" aria-label="${item.label}">
+          <span class="btn-glyph">${item.glyph}</span>
+        </button>`,
+    ).join('');
+
     this.root.innerHTML = `
       <div id="touch-look-layer"></div>
       <div id="joystick-base"><div id="joystick-knob"></div></div>
+      <div id="shop-dock">${shopButtons}</div>
       <div id="weapon-dock">${dockButtons}</div>
       <button class="mobile-btn" id="btn-reload" aria-label="Recargar"><span class="btn-glyph">⟳</span></button>
       <button class="mobile-btn" id="btn-jump" aria-label="Saltar"><span class="btn-glyph">▲</span></button>
@@ -77,6 +93,7 @@ export class MobileControls {
     const fireBtn = this.root.querySelector<HTMLButtonElement>('#btn-fire')!;
     const jumpBtn = this.root.querySelector<HTMLButtonElement>('#btn-jump')!;
     const reloadBtn = this.root.querySelector<HTMLButtonElement>('#btn-reload')!;
+    this.shopDock = this.root.querySelector<HTMLDivElement>('#shop-dock')!;
 
     this.setupJoystick(joystickBase, joystickKnob, callbacks.onMove);
     this.setupLook(lookLayer, callbacks.onLook);
@@ -89,6 +106,15 @@ export class MobileControls {
       const slot = btn.dataset.slot as WeaponSlotId;
       this.setupTapButton(btn, () => callbacks.onSelectWeapon(slot));
     }
+
+    for (const btn of this.root.querySelectorAll<HTMLButtonElement>('.shop-buy-btn')) {
+      const key = btn.dataset.key!;
+      this.setupTapButton(btn, () => callbacks.onBuy(key));
+    }
+  }
+
+  setShopVisible(visible: boolean) {
+    this.shopDock.style.display = visible ? 'flex' : 'none';
   }
 
   // Highlight the currently drawn weapon in the dock.

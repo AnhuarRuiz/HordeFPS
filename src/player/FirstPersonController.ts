@@ -11,6 +11,7 @@ const JUMP_SPEED = 6.2;
 const GRAVITY = -18;
 const MOUSE_SENSITIVITY = 0.0022;
 const TOUCH_LOOK_SENSITIVITY = 0.0032;
+const AIM_SPEED_MULT = 0.55;
 
 export class FirstPersonController {
   readonly camera: THREE.PerspectiveCamera;
@@ -33,6 +34,7 @@ export class FirstPersonController {
   private touchMoveX = 0;
   private touchMoveZ = 0;
   private _locked = false;
+  private aiming = false;
 
   constructor(
     camera: THREE.PerspectiveCamera,
@@ -84,6 +86,10 @@ export class FirstPersonController {
   setTouchMove(x: number, z: number) {
     this.touchMoveX = x;
     this.touchMoveZ = z;
+  }
+
+  setAiming(aiming: boolean) {
+    this.aiming = aiming;
   }
 
   addLookDelta(dx: number, dy: number) {
@@ -143,7 +149,7 @@ export class FirstPersonController {
     if (wishDir.lengthSq() > 1) wishDir.normalize();
 
     const sprinting = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
-    const targetSpeed = sprinting ? SPRINT_SPEED : MOVE_SPEED;
+    const targetSpeed = (sprinting ? SPRINT_SPEED : MOVE_SPEED) * (this.aiming ? AIM_SPEED_MULT : 1);
     const targetVel = wishDir.clone().multiplyScalar(targetSpeed);
 
     const rate = wishDir.lengthSq() > 0 ? ACCEL : DAMPING;

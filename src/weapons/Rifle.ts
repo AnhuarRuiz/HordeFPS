@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { buildArm, buildSupportArm } from './Arm.ts';
+import { playReloadClick, playRifleShot } from '../systems/Audio.ts';
 
 // M4A1: full-auto carbine. Higher rate of fire and range than the pistol, but
 // slightly less damage per round and a longer reload.
@@ -14,6 +15,11 @@ const RECOIL_RECOVERY = 10;
 
 const VIEWMODEL_DISTANCE = 0.95;
 const VIEWMODEL_SCALE = 2.1;
+
+// Aim-down-sights: viewmodel pulls in toward center/camera; lerp rate is per
+// second, so this reaches full aim in ~0.15s.
+const AIM_OFFSET = new THREE.Vector3(-0.22, 0.06, 0.3);
+const AIM_LERP_RATE = 10;
 
 // How far the viewmodel drops / tilts away while being holstered (0 = drawn).
 const SWITCH_DROP = 0.55;
@@ -48,6 +54,8 @@ export class Rifle {
   private supportHand!: THREE.Group;
   private supportAnchor = new THREE.Vector3();
   private switchOffset = 0;
+  private aiming = false;
+  private aimAmount = 0;
 
   constructor(camera: THREE.PerspectiveCamera) {
     this.camera = camera;
@@ -287,6 +295,14 @@ export class Rifle {
     this.switchOffset = offset;
   }
 
+  setAiming(aiming: boolean) {
+    this.aiming = aiming;
+  }
+
+  addReserveAmmo(amount: number) {
+    this.reserveAmmo = Math.min(MAX_RESERVE, this.reserveAmmo + amount);
+  }
+
   get damage(): number {
     return DAMAGE;
   }
@@ -303,6 +319,7 @@ export class Rifle {
     if (this.isReloading || this.ammoInMag === MAG_SIZE || this.reserveAmmo === 0) return;
     this.isReloading = true;
     this.reloadTimer = RELOAD_TIME;
+    playReloadClick();
   }
 
   fire(targets: THREE.Object3D[]): HitResult | null {
@@ -312,8 +329,9 @@ export class Rifle {
     }
     this.ammoInMag -= 1;
     this.cooldown = FIRE_INTERVAL;
-    this.recoil = RECOIL_KICK;
+    this.recoil = RECOIL_KICK * (1 - this.aimAmount * 0.5);
     this.muzzleFlashTimer = 0.05;
+    playRifleShot();
 
     this.raycaster.setFromCamera(new THREE.Vector2(0, 0), this.camera);
     const hits = this.raycaster.intersectObjects(targets, true);
@@ -390,6 +408,7 @@ export class Rifle {
 
   update(dt: number) {
     if (this.cooldown > 0) this.cooldown = Math.max(0, this.cooldown - dt);
+    this.aimAmount += ((this.aiming ? 1 : 0) - this.aimAmount) * Math.min(1, AIM_LERP_RATE * dt);
 
     if (this.isReloading) {
       this.reloadTimer -= dt;
@@ -399,6 +418,7 @@ export class Rifle {
         this.ammoInMag += taken;
         this.reserveAmmo -= taken;
         this.isReloading = false;
+        playReloadClick();
       }
     }
 
@@ -407,9 +427,9 @@ export class Rifle {
     } else {
       this.recoil = Math.max(0, this.recoil - RECOIL_RECOVERY * dt * this.recoil);
       this.viewModel.position.set(
-        this.basePosition.x,
-        this.basePosition.y + this.recoil * 0.4,
-        this.basePosition.z + this.recoil,
+        this.basePosition.x + AIM_OFFSET.x * this.aimAmount,
+        this.basePosition.y + this.recoil * 0.4 + AIM_OFFSET.y * this.aimAmount,
+        this.basePosition.z + this.recoil + AIM_OFFSET.z * this.aimAmount,
       );
       this.viewModel.rotation.set(0, 0, 0);
       this.magPivot.position.y = this.magRestY;

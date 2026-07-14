@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { buildArm, buildReloadHand } from './Arm.ts';
+import { buildArm, buildHarriesHand, buildReloadHand } from './Arm.ts';
+import { playPistolShot, playReloadClick } from '../systems/Audio.ts';
 
 const MAG_SIZE = 30;
 const MAX_RESERVE = 150;
@@ -12,6 +13,11 @@ const RECOIL_RECOVERY = 9;
 
 const VIEWMODEL_DISTANCE = 0.95;
 const VIEWMODEL_SCALE = 2.1;
+
+// Aim-down-sights: viewmodel pulls in toward center/camera; lerp rate is per
+// second, so this reaches full aim in ~0.15s.
+const AIM_OFFSET = new THREE.Vector3(-0.2, 0.05, 0.28);
+const AIM_LERP_RATE = 10;
 
 // How far the viewmodel drops / tilts away while being holstered (0 = drawn).
 const SWITCH_DROP = 0.55;
@@ -43,9 +49,12 @@ export class Weapon {
   private slideRestZ = 0;
   private magGroup!: THREE.Group;
   private reloadHand!: THREE.Group;
+  private harriesHand!: THREE.Group;
   private gripPivot!: THREE.Group;
   private tmpVec = new THREE.Vector3();
   private switchOffset = 0;
+  private aiming = false;
+  private aimAmount = 0;
 
   constructor(camera: THREE.PerspectiveCamera) {
     this.camera = camera;
@@ -62,8 +71,11 @@ export class Weapon {
 
     // The arm rides the grip, so it inherits the gun's scale; undo it here to
     // keep the arm the size it already is while only the pistol shrinks.
+    // Lifted slightly on the pistol so the support arm has room to cross
+    // underneath it in the Harries hold below.
     const arm = buildArm();
     arm.scale.setScalar(1 / gunScale);
+    arm.position.y += 0.05;
     gun.add(arm);
 
     // Off hand that carries the magazine and racks the slide during reloads
@@ -75,6 +87,16 @@ export class Weapon {
     reloadHand.visible = false;
     gun.add(reloadHand);
     this.reloadHand = reloadHand;
+
+    // Support hand in a Harries hold: parked just under and behind the grip,
+    // wrist crossed in under the gun hand, flashlight aimed alongside the
+    // barrel. Visible whenever the pistol isn't mid-reload.
+    const harriesHand = buildHarriesHand();
+    harriesHand.scale.setScalar(1 / gunScale);
+    const harriesAnchor = gun.userData.harriesAnchor as THREE.Vector3;
+    harriesHand.position.copy(harriesAnchor);
+    gun.add(harriesHand);
+    this.harriesHand = harriesHand;
 
     const fillLight = new THREE.PointLight(0xfff2e0, 0.85, 3);
     fillLight.position.set(0.35, 0.4, 0.5);
@@ -232,6 +254,10 @@ export class Weapon {
     gun.userData.gripPivot = gripPivot;
     gun.userData.gripHeight = gripH;
     gun.userData.gripDepth = gripD;
+    // Right of, and forward of, the gun hand's arm — which sprawls back toward
+    // the camera from the grip and would otherwise sit directly in front of the
+    // flashlight and hide it completely.
+    gun.userData.harriesAnchor = new THREE.Vector3(0.23, frameBottom - 0.05, -0.1);
 
     return gun;
   }
@@ -243,6 +269,14 @@ export class Weapon {
   // 0 = fully drawn, 1 = fully holstered (dropped and tilted off screen).
   setSwitchOffset(offset: number) {
     this.switchOffset = offset;
+  }
+
+  setAiming(aiming: boolean) {
+    this.aiming = aiming;
+  }
+
+  addReserveAmmo(amount: number) {
+    this.reserveAmmo = Math.min(MAX_RESERVE, this.reserveAmmo + amount);
   }
 
   get damage(): number {
@@ -261,6 +295,7 @@ export class Weapon {
     if (this.isReloading || this.ammoInMag === MAG_SIZE || this.reserveAmmo === 0) return;
     this.isReloading = true;
     this.reloadTimer = RELOAD_TIME;
+    playReloadClick();
   }
 
   fire(targets: THREE.Object3D[]): HitResult | null {
@@ -270,8 +305,9 @@ export class Weapon {
     }
     this.ammoInMag -= 1;
     this.cooldown = FIRE_INTERVAL;
-    this.recoil = RECOIL_KICK;
+    this.recoil = RECOIL_KICK * (1 - this.aimAmount * 0.5);
     this.muzzleFlashTimer = 0.05;
+    playPistolShot();
 
     this.raycaster.setFromCamera(new THREE.Vector2(0, 0), this.camera);
     const hits = this.raycaster.intersectObjects(targets, true);
@@ -366,6 +402,7 @@ export class Weapon {
 
   update(dt: number) {
     if (this.cooldown > 0) this.cooldown = Math.max(0, this.cooldown - dt);
+    this.aimAmount += ((this.aiming ? 1 : 0) - this.aimAmount) * Math.min(1, AIM_LERP_RATE * dt);
 
     if (this.isReloading) {
       this.reloadTimer -= dt;
@@ -375,17 +412,20 @@ export class Weapon {
         this.ammoInMag += taken;
         this.reserveAmmo -= taken;
         this.isReloading = false;
+        playReloadClick();
       }
     }
+
+    this.harriesHand.visible = !this.isReloading;
 
     if (this.isReloading) {
       this.applyReloadPose(1 - this.reloadTimer / RELOAD_TIME);
     } else {
       this.recoil = Math.max(0, this.recoil - RECOIL_RECOVERY * dt * this.recoil);
       this.viewModel.position.set(
-        this.basePosition.x,
-        this.basePosition.y + this.recoil * 0.4,
-        this.basePosition.z + this.recoil,
+        this.basePosition.x + AIM_OFFSET.x * this.aimAmount,
+        this.basePosition.y + this.recoil * 0.4 + AIM_OFFSET.y * this.aimAmount,
+        this.basePosition.z + this.recoil + AIM_OFFSET.z * this.aimAmount,
       );
       this.viewModel.rotation.set(0, 0, 0);
       this.magGroup.position.y = 0;
