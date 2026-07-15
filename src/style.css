@@ -349,6 +349,32 @@ canvas {
   position: fixed;
   inset: 0;
   z-index: 5;
+  --ui-scale: 1;
+}
+
+/* While the pause menu is open, dim (and functionally disable, via JS guards)
+   everything except whatever the edit-mode outline highlights below. */
+#mobile-controls.paused #shop-dock,
+#mobile-controls.paused .weapon-slot,
+#mobile-controls.paused #joystick-base,
+#mobile-controls.paused .ctrl-anchor {
+  opacity: 0.35;
+}
+
+#mobile-controls.paused.edit-mode [data-drag-id] {
+  opacity: 1;
+}
+
+#mobile-controls.edit-mode [data-drag-id] {
+  outline: 2px dashed rgba(255, 214, 10, 0.85);
+  outline-offset: 4px;
+  border-radius: 22px;
+  animation: edit-pulse 1.3s ease-in-out infinite;
+}
+
+@keyframes edit-pulse {
+  0%, 100% { outline-color: rgba(255, 214, 10, 0.85); }
+  50% { outline-color: rgba(255, 214, 10, 0.35); }
 }
 
 #touch-look-layer {
@@ -367,6 +393,8 @@ canvas {
   background: rgba(255, 255, 255, 0.08);
   border: 2px solid rgba(255, 255, 255, 0.25);
   touch-action: none;
+  transform: scale(var(--ui-scale));
+  transform-origin: bottom left;
 }
 
 #joystick-knob {
@@ -383,8 +411,19 @@ canvas {
   transition: transform 0.02s linear;
 }
 
+/* Each circular action button lives inside a ".ctrl-anchor" wrapper: the
+   wrapper owns position + the ui-scale transform, while the button itself
+   keeps its own :active press transform. Splitting them avoids the two
+   transforms fighting over the same CSS property, and gives drag-to-reposition
+   a single element (the wrapper) to move. */
+.ctrl-anchor {
+  position: absolute;
+  transform: scale(var(--ui-scale));
+}
+
 .mobile-btn {
   position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -411,11 +450,15 @@ canvas {
   pointer-events: none;
 }
 
-#btn-fire {
+#anchor-fire {
   right: max(26px, env(safe-area-inset-right));
   bottom: max(28px, env(safe-area-inset-bottom));
   width: 96px;
   height: 96px;
+  transform-origin: bottom right;
+}
+
+#btn-fire {
   background: radial-gradient(circle at 50% 40%, rgba(240, 70, 60, 0.42), rgba(150, 26, 26, 0.5));
   border: 2px solid rgba(255, 130, 120, 0.7);
   box-shadow: 0 0 22px rgba(220, 50, 40, 0.4), inset 0 0 18px rgba(255, 120, 100, 0.2);
@@ -434,20 +477,60 @@ canvas {
   transform: scale(0.95);
 }
 
-#btn-jump {
+#anchor-jump {
   right: max(134px, env(safe-area-inset-right));
   bottom: max(34px, env(safe-area-inset-bottom));
   width: 66px;
   height: 66px;
+  transform-origin: bottom right;
+}
+
+#btn-jump {
   font-size: 24px;
 }
 
-#btn-reload {
+#anchor-reload {
   right: max(46px, env(safe-area-inset-right));
   bottom: max(132px, env(safe-area-inset-bottom));
   width: 64px;
   height: 64px;
+  transform-origin: bottom right;
+}
+
+#btn-reload {
   font-size: 26px;
+}
+
+#anchor-pause {
+  left: max(12px, env(safe-area-inset-left));
+  top: max(10px, env(safe-area-inset-top));
+  width: 40px;
+  height: 40px;
+  transform-origin: top left;
+}
+
+/* Drawn as two CSS bars instead of relying on the "❚❚" glyph, which some
+   mobile fonts render as a single solid block rather than two bars. */
+#btn-pause .btn-glyph {
+  display: none;
+}
+
+#btn-pause::before,
+#btn-pause::after {
+  content: '';
+  position: absolute;
+  width: 4px;
+  height: 13px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+#btn-pause::before {
+  transform: translateX(-4px);
+}
+
+#btn-pause::after {
+  transform: translateX(4px);
 }
 
 /* Shop dock: three buy buttons shown only during the intermission, sitting
@@ -455,7 +538,8 @@ canvas {
 #shop-dock {
   position: absolute;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translateX(-50%) scale(var(--ui-scale));
+  transform-origin: bottom center;
   bottom: max(96px, calc(env(safe-area-inset-bottom) + 96px));
   display: none;
   gap: 10px;
@@ -474,7 +558,8 @@ canvas {
 #weapon-dock {
   position: absolute;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translateX(-50%) scale(var(--ui-scale));
+  transform-origin: bottom center;
   bottom: max(22px, env(safe-area-inset-bottom));
   display: flex;
   gap: 10px;
@@ -533,7 +618,8 @@ canvas {
    the top corners. */
 body.mobile-layout #health-panel {
   top: max(12px, env(safe-area-inset-top));
-  left: max(12px, env(safe-area-inset-left));
+  /* Leave room on the left for the pause button. */
+  left: max(60px, calc(env(safe-area-inset-left) + 60px));
   bottom: auto;
   padding: 6px 12px;
 }
@@ -554,7 +640,10 @@ body.mobile-layout #ammo-mag {
 }
 
 body.mobile-layout #top-center {
-  top: max(10px, env(safe-area-inset-top));
+  /* Sits below the health/ammo row instead of beside it — on narrow phones
+     health-panel + top-center + ammo-panel are wider than the screen, and
+     sharing the same row made them overlap. */
+  top: max(58px, calc(env(safe-area-inset-top) + 50px));
   padding: 4px 14px;
 }
 
@@ -566,4 +655,133 @@ body.mobile-layout #shop-panel {
   bottom: 170px;
   min-width: 260px;
   padding: 10px 12px;
+}
+
+/* Narrow phones (older/smaller devices, ~360px and below): health-panel and
+   ammo-panel still overlapped at their normal size, so shrink health-panel
+   further to guarantee clearance regardless of exact screen width. */
+@media (max-width: 400px) {
+  body.mobile-layout #health-panel {
+    gap: 6px;
+    padding: 6px 8px;
+  }
+
+  body.mobile-layout #health-track {
+    width: 50px;
+  }
+}
+
+/* Pause / settings panel — a compact card near the top of the screen rather
+   than a full-screen cover, so the controls stay visible (and draggable)
+   underneath while it's open. */
+#mobile-settings {
+  display: none;
+  position: absolute;
+  left: 50%;
+  top: max(64px, calc(env(safe-area-inset-top) + 56px));
+  transform: translateX(-50%);
+  width: min(340px, calc(100vw - 32px));
+  z-index: 10;
+}
+
+#mobile-settings.visible {
+  display: block;
+}
+
+.settings-card {
+  background: rgba(10, 12, 16, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 16px;
+  padding: 16px 18px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.55);
+  color: #eee;
+}
+
+.settings-card h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  letter-spacing: 0.5px;
+  text-align: center;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.settings-row span:first-child {
+  flex: none;
+  width: 108px;
+}
+
+.settings-row input[type='range'] {
+  flex: 1;
+  /* Without this, the range input's intrinsic width keeps it from actually
+     shrinking to fit the card on narrow phones, overflowing the viewport. */
+  min-width: 0;
+  accent-color: #f77f00;
+}
+
+.settings-value {
+  flex: none;
+  width: 40px;
+  text-align: right;
+  font-weight: 700;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.settings-edit-row {
+  justify-content: space-between;
+}
+
+.settings-toggle {
+  padding: 6px 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #eee;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.settings-toggle.active {
+  background: rgba(255, 214, 10, 0.28);
+  border-color: rgba(255, 214, 10, 0.75);
+  color: #ffe9a8;
+}
+
+.settings-hint {
+  margin: 0 0 14px;
+  font-size: 11px;
+  line-height: 1.4;
+  opacity: 0.65;
+}
+
+.settings-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.settings-btn {
+  flex: 1;
+  padding: 10px 0;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.settings-btn-secondary {
+  background: rgba(255, 255, 255, 0.08);
+  color: #eee;
+}
+
+.settings-btn-primary {
+  background: rgba(76, 207, 106, 0.28);
+  border-color: rgba(76, 207, 106, 0.75);
+  color: #cdf5d8;
 }

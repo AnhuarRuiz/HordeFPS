@@ -41,6 +41,7 @@ export class FirstPersonController {
   private prone = false;
   private eyeHeight = EYE_HEIGHT;
   private wishLen = 0;
+  private touchSensitivity = 1;
 
   constructor(
     camera: THREE.PerspectiveCamera,
@@ -117,7 +118,12 @@ export class FirstPersonController {
   }
 
   addLookDelta(dx: number, dy: number) {
-    this.applyLook(dx * TOUCH_LOOK_SENSITIVITY, dy * TOUCH_LOOK_SENSITIVITY);
+    this.applyLook(dx * TOUCH_LOOK_SENSITIVITY * this.touchSensitivity, dy * TOUCH_LOOK_SENSITIVITY * this.touchSensitivity);
+  }
+
+  // Multiplier on top of TOUCH_LOOK_SENSITIVITY, driven by the mobile settings slider.
+  setTouchSensitivity(mult: number) {
+    this.touchSensitivity = mult;
   }
 
   private handleLockChange() {

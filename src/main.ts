@@ -99,6 +99,7 @@ let playerHealth = PLAYER_MAX_HEALTH_START;
 let playerMaxHealth = PLAYER_MAX_HEALTH_START;
 let money = 0;
 let gameOver = false;
+let paused = false;
 
 const controller = new FirstPersonController(
   camera,
@@ -333,6 +334,15 @@ const mobileControls = mobile
       },
       onSelectWeapon: (slot) => requestSwitch(slot),
       onBuy: (key) => attemptPurchase(key),
+      onPauseChange: (isPaused) => {
+        paused = isPaused;
+        if (isPaused) {
+          isMouseDown = false;
+          pistolTriggerPressed = false;
+          aiming = false;
+        }
+      },
+      onSensitivityChange: (mult) => controller.setTouchSensitivity(mult),
     })
   : null;
 mobileControls?.setActiveWeapon(activeSlot);
@@ -405,7 +415,7 @@ function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
   arena.updateMist(clock.elapsedTime);
 
-  if (controller.locked && !gameOver) {
+  if (controller.locked && !gameOver && !paused) {
     controller.update(dt);
     updateSwitch(dt);
     updateProneCrawl(dt);
