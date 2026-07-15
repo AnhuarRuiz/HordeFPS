@@ -7,6 +7,7 @@ import { Weapon } from './weapons/Weapon.ts';
 import { Rifle } from './weapons/Rifle.ts';
 import { Knife } from './weapons/Knife.ts';
 import { CrawlArms } from './weapons/CrawlArms.ts';
+import { MantleArms } from './weapons/MantleArms.ts';
 import { WaveManager } from './systems/WaveManager.ts';
 import { BloodEffects } from './systems/BloodEffects.ts';
 import { Hud, type ShopItem } from './ui/Hud.ts';
@@ -121,6 +122,7 @@ const weapon = new Weapon(camera);
 const rifle = new Rifle(camera);
 const knife = new Knife(camera);
 const crawlArms = new CrawlArms(camera);
+const mantleArms = new MantleArms(camera);
 const bloodFx = new BloodEffects(scene, arena.solidMeshes);
 const waveManager = new WaveManager(scene, arena.spawnPoints, arena.collisionBoxes, (kind, position) => {
   money += KILL_REWARD[kind];
@@ -286,6 +288,29 @@ function onWeaponDrawn(slot: WeaponSlot) {
   else if (slot === 'rifle') rifle.startMount();
 }
 
+// Climbing a ledge takes both hands: the moment a mantle starts we stow whatever
+// weapon is out and show the climbing-hands viewmodel instead, driving it with
+// the controller's climb progress; when the mantle ends we draw the weapon back.
+let wasMantling = false;
+function updateMantleWeapon() {
+  const mantling = controller.isMantling;
+  if (mantling && !wasMantling) {
+    weapon.setActive(false);
+    rifle.setActive(false);
+    knife.setActive(false);
+    crawlArms.setVisible(false);
+    mantleArms.setVisible(true);
+  } else if (!mantling && wasMantling) {
+    mantleArms.setVisible(false);
+    // Back on your feet: re-draw the weapon you were holding, with its normal
+    // present/mount beat so the flashlight settles rather than snapping on.
+    setActiveSlot(activeSlot);
+    onWeaponDrawn(activeSlot);
+  }
+  if (mantling) mantleArms.update(controller.mantleProgress);
+  wasMantling = mantling;
+}
+
 let isMouseDown = false;
 // Semi-auto edge trigger: the pistol fires once per press, not continuously.
 let pistolTriggerPressed = false;
@@ -410,6 +435,12 @@ const tmpLightPos = new THREE.Vector3();
 
 const clock = new THREE.Clock();
 
+// Dev-only handle for driving/inspecting the game from automated tests and the
+// console. Stripped from production builds (import.meta.env.DEV is false there).
+if (import.meta.env.DEV) {
+  (window as unknown as { __horde: unknown }).__horde = { camera, controller, scene, crawlArms, mantleArms };
+}
+
 function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.05);
@@ -419,8 +450,10 @@ function animate() {
     controller.update(dt);
     updateSwitch(dt);
     updateProneCrawl(dt);
+    updateMantleWeapon();
 
-    const wantAim = aiming && !switching && activeSlot !== 'knife' && proneWeaponPhase === 'weaponOut';
+    const wantAim =
+      aiming && !switching && activeSlot !== 'knife' && proneWeaponPhase === 'weaponOut' && !controller.isMantling;
     weapon.setAiming(wantAim && activeSlot === 'pistol');
     rifle.setAiming(wantAim && activeSlot === 'rifle');
     controller.setAiming(wantAim);
@@ -430,7 +463,7 @@ function animate() {
       camera.updateProjectionMatrix();
     }
 
-    if (!switching && proneWeaponPhase === 'weaponOut') {
+    if (!switching && proneWeaponPhase === 'weaponOut' && !controller.isMantling) {
       const targets: THREE.Object3D[] = [...waveManager.raycastTargets, ...arena.solidMeshes];
       let hit: { object: THREE.Object3D; point: THREE.Vector3; distance: number } | null = null;
       let damage = 0;
@@ -471,7 +504,7 @@ function animate() {
     // crawling during the prone holster/draw beats too, so the beam fades out
     // rather than tracking the holstered gun's off-screen position.
     let beam = 1;
-    if (proneWeaponPhase !== 'weaponOut') {
+    if (proneWeaponPhase !== 'weaponOut' || controller.isMantling) {
       beam = 0;
     } else if (activeSlot === 'pistol') {
       beam = weapon.flashlightBlend;
@@ -480,7 +513,7 @@ function animate() {
       beam = rifle.flashlightBlend;
       rifle.getFlashlightEmitter(tmpLightPos);
     }
-    if (activeSlot !== 'knife' && proneWeaponPhase === 'weaponOut') {
+    if (activeSlot !== 'knife' && proneWeaponPhase === 'weaponOut' && !controller.isMantling) {
       camera.worldToLocal(tmpLightPos);
       flashlight.position.copy(tmpLightPos);
       flashlightTarget.position.set(tmpLightPos.x, tmpLightPos.y, tmpLightPos.z - 6);

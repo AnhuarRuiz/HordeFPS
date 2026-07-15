@@ -5,6 +5,10 @@ export interface CollisionBox {
   maxX: number;
   minZ: number;
   maxZ: number;
+  // Height of the box top above the floor. Used by the player controller for
+  // parkour (standing on top, stepping up, mantling). Zombies ignore it and
+  // treat every box as a full-height obstacle to steer around in 2D.
+  top?: number;
 }
 
 export interface ArenaBuildResult {
@@ -26,12 +30,13 @@ const WALL_HEIGHT = 5;
 const WALL_THICKNESS = 1;
 const MIST_COUNT = 12;
 
-function boxFromCenter(cx: number, cz: number, sx: number, sz: number): CollisionBox {
+function boxFromCenter(cx: number, cz: number, sx: number, sz: number, top?: number): CollisionBox {
   return {
     minX: cx - sx / 2,
     maxX: cx + sx / 2,
     minZ: cz - sz / 2,
     maxZ: cz + sz / 2,
+    top,
   };
 }
 
@@ -72,7 +77,9 @@ export function buildArena(): ArenaBuildResult {
     wall.castShadow = true;
     wall.receiveShadow = true;
     group.add(wall);
-    collisionBoxes.push(boxFromCenter(cx, cz, sx, sz));
+    // Too tall to mantle (WALL_HEIGHT >> the controller's max mantle), so these
+    // stay hard walls, but the height still keeps standing/step logic honest.
+    collisionBoxes.push(boxFromCenter(cx, cz, sx, sz, WALL_HEIGHT));
     solidMeshes.push(wall);
   }
 
@@ -96,7 +103,37 @@ export function buildArena(): ArenaBuildResult {
     box.castShadow = true;
     box.receiveShadow = true;
     group.add(box);
-    collisionBoxes.push(boxFromCenter(cx, cz, sx, sz));
+    collisionBoxes.push(boxFromCenter(cx, cz, sx, sz, h));
+    solidMeshes.push(box);
+  }
+
+  // Parkour: crates of varied heights the player can climb, step up, and hop
+  // between. A slightly warmer, lighter material sets them apart from the dark
+  // cover so they read as "climbable" once caught by the flashlight. Two little
+  // clusters: a rising staircase (0.9 -> 1.6 -> 2.4) with a gap platform to jump
+  // to on one side, and a low run-up ledge that steps up on the other.
+  const crateMat = new THREE.MeshStandardMaterial({
+    color: 0x6d5f4c,
+    roughness: 0.8,
+    emissive: 0x241f18,
+    emissiveIntensity: 0.5,
+  });
+  // [cx, cz, sx, sz, top]
+  const parkourLayout: [number, number, number, number, number][] = [
+    [6, 10, 2, 2, 0.9], // staircase step 1 (low)
+    [8.4, 10, 2, 2, 1.6], // staircase step 2 (mid)
+    [10.8, 10, 2, 2, 2.4], // staircase step 3 (high)
+    [8.4, 6.4, 2.4, 2.4, 1.6], // gap platform: hop across from the staircase
+    [-8.5, 9.5, 3, 1.5, 0.7], // low run-up ledge
+    [-8.5, 7, 1.8, 1.8, 1.5], // step up from the ledge
+  ];
+  for (const [cx, cz, sx, sz, top] of parkourLayout) {
+    const box = new THREE.Mesh(new THREE.BoxGeometry(sx, top, sz), crateMat);
+    box.position.set(cx, top / 2, cz);
+    box.castShadow = true;
+    box.receiveShadow = true;
+    group.add(box);
+    collisionBoxes.push(boxFromCenter(cx, cz, sx, sz, top));
     solidMeshes.push(box);
   }
 
