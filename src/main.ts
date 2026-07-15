@@ -8,6 +8,7 @@ import { Rifle } from './weapons/Rifle.ts';
 import { Knife } from './weapons/Knife.ts';
 import { CrawlArms } from './weapons/CrawlArms.ts';
 import { MantleArms } from './weapons/MantleArms.ts';
+import { VIEWMODEL_LAYER } from './weapons/Hand.ts';
 import { WaveManager } from './systems/WaveManager.ts';
 import { BloodEffects } from './systems/BloodEffects.ts';
 import { Hud, type ShopItem } from './ui/Hud.ts';
@@ -67,7 +68,27 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+// The hand viewmodels (crawl/mantle) render in a second pass over a cleared
+// depth buffer, so clearing is driven manually below instead of automatically.
+renderer.autoClear = false;
 appEl.appendChild(renderer.domElement);
+
+// World render (layer 0), then the hand viewmodels (VIEWMODEL_LAYER) over a
+// fresh depth buffer so they always sit on top of the world yet still occlude
+// themselves correctly. The viewmodel pass is skipped unless a hand rig is
+// actually showing, so normal play pays nothing for it.
+function renderFrame() {
+  renderer.clear();
+  camera.layers.set(0);
+  renderer.render(scene, camera);
+
+  if (crawlArms.visible || mantleArms.visible) {
+    renderer.clearDepth();
+    camera.layers.set(VIEWMODEL_LAYER);
+    renderer.render(scene, camera);
+    camera.layers.set(0);
+  }
+}
 
 // Mobile browsers resize the visual viewport (not window.innerWidth/Height)
 // when the address bar shows/hides, which previously left a stale gap at the
@@ -288,27 +309,80 @@ function onWeaponDrawn(slot: WeaponSlot) {
   else if (slot === 'rifle') rifle.startMount();
 }
 
-// Climbing a ledge takes both hands: the moment a mantle starts we stow whatever
-// weapon is out and show the climbing-hands viewmodel instead, driving it with
-// the controller's climb progress; when the mantle ends we draw the weapon back.
-let wasMantling = false;
-function updateMantleWeapon() {
+// Climbing a ledge takes both hands, so the weapon is stowed for the whole
+// gesture, which runs in two beats:
+//   climb  — driven by the controller's mantle progress (reach, grab, pull up).
+//   lower  — a short recovery after cresting where the hands drop out of frame;
+//            only when that finishes is the weapon drawn back, so the vault
+//            settles instead of the weapon snapping in mid-pull.
+// `handsPhase` is 'none' exactly when a weapon is in hand, so the firing / aim /
+// flashlight logic keys off it below.
+type HandsPhase = 'none' | 'climb' | 'lower';
+let handsPhase: HandsPhase = 'none';
+let lowerTimer = 0;
+let weaponClimbAmt = 0;
+const HANDS_LOWER_TIME = 0.42;
+
+function updateMantleWeapon(dt: number) {
   const mantling = controller.isMantling;
-  if (mantling && !wasMantling) {
-    weapon.setActive(false);
-    rifle.setActive(false);
-    knife.setActive(false);
-    crawlArms.setVisible(false);
-    mantleArms.setVisible(true);
-  } else if (!mantling && wasMantling) {
-    mantleArms.setVisible(false);
-    // Back on your feet: re-draw the weapon you were holding, with its normal
-    // present/mount beat so the flashlight settles rather than snapping on.
-    setActiveSlot(activeSlot);
-    onWeaponDrawn(activeSlot);
+
+  // The pistol and rifle both carry the player's flashlight, so you climb WITH
+  // them in hand: they never holster, the flashlight stays lit, and the weapon
+  // just sways as you scramble — you simply can't fire mid-climb. The knife
+  // needs no light and frees both hands, so it still stows for bare climbing
+  // hands.
+  if (activeSlot === 'pistol' || activeSlot === 'rifle') {
+    const target = mantling ? 1 : 0;
+    weaponClimbAmt += (target - weaponClimbAmt) * Math.min(1, 12 * dt);
+    const held = activeSlot === 'pistol' ? weapon : rifle;
+    const other = activeSlot === 'pistol' ? rifle : weapon;
+    held.setMantleOffset(weaponClimbAmt, controller.mantleProgress);
+    other.setMantleOffset(0, 0);
+    // Guard: if we entered a mantle on the knife and switched, clear bare hands.
+    if (handsPhase !== 'none') {
+      mantleArms.setVisible(false);
+      handsPhase = 'none';
+    }
+    return;
   }
-  if (mantling) mantleArms.update(controller.mantleProgress);
-  wasMantling = mantling;
+
+  // Knife: make sure the gun climb sway is cleared, then use bare hands.
+  weaponClimbAmt = 0;
+  weapon.setMantleOffset(0, 0);
+  rifle.setMantleOffset(0, 0);
+
+  if (mantling) {
+    if (handsPhase !== 'climb') {
+      weapon.setActive(false);
+      rifle.setActive(false);
+      knife.setActive(false);
+      crawlArms.setVisible(false);
+      mantleArms.setVisible(true);
+      handsPhase = 'climb';
+    }
+    mantleArms.update(controller.mantleProgress);
+    return;
+  }
+
+  // Climb just finished: begin lowering the hands before drawing the weapon.
+  if (handsPhase === 'climb') {
+    handsPhase = 'lower';
+    lowerTimer = 0;
+  }
+
+  if (handsPhase === 'lower') {
+    lowerTimer += dt;
+    const t = Math.min(1, lowerTimer / HANDS_LOWER_TIME);
+    mantleArms.updateLower(t);
+    if (t >= 1) {
+      mantleArms.setVisible(false);
+      // Hands are down and clear — now draw the weapon with its normal
+      // present/mount beat so the flashlight settles rather than snapping on.
+      setActiveSlot(activeSlot);
+      onWeaponDrawn(activeSlot);
+      handsPhase = 'none';
+    }
+  }
 }
 
 let isMouseDown = false;
@@ -450,10 +524,15 @@ function animate() {
     controller.update(dt);
     updateSwitch(dt);
     updateProneCrawl(dt);
-    updateMantleWeapon();
+    updateMantleWeapon(dt);
 
     const wantAim =
-      aiming && !switching && activeSlot !== 'knife' && proneWeaponPhase === 'weaponOut' && !controller.isMantling;
+      aiming &&
+      !switching &&
+      activeSlot !== 'knife' &&
+      proneWeaponPhase === 'weaponOut' &&
+      handsPhase === 'none' &&
+      !controller.isMantling;
     weapon.setAiming(wantAim && activeSlot === 'pistol');
     rifle.setAiming(wantAim && activeSlot === 'rifle');
     controller.setAiming(wantAim);
@@ -463,7 +542,7 @@ function animate() {
       camera.updateProjectionMatrix();
     }
 
-    if (!switching && proneWeaponPhase === 'weaponOut' && !controller.isMantling) {
+    if (!switching && proneWeaponPhase === 'weaponOut' && handsPhase === 'none' && !controller.isMantling) {
       const targets: THREE.Object3D[] = [...waveManager.raycastTargets, ...arena.solidMeshes];
       let hit: { object: THREE.Object3D; point: THREE.Vector3; distance: number } | null = null;
       let damage = 0;
@@ -504,7 +583,7 @@ function animate() {
     // crawling during the prone holster/draw beats too, so the beam fades out
     // rather than tracking the holstered gun's off-screen position.
     let beam = 1;
-    if (proneWeaponPhase !== 'weaponOut' || controller.isMantling) {
+    if (proneWeaponPhase !== 'weaponOut' || handsPhase !== 'none') {
       beam = 0;
     } else if (activeSlot === 'pistol') {
       beam = weapon.flashlightBlend;
@@ -513,7 +592,7 @@ function animate() {
       beam = rifle.flashlightBlend;
       rifle.getFlashlightEmitter(tmpLightPos);
     }
-    if (activeSlot !== 'knife' && proneWeaponPhase === 'weaponOut' && !controller.isMantling) {
+    if (activeSlot !== 'knife' && proneWeaponPhase === 'weaponOut' && handsPhase === 'none') {
       camera.worldToLocal(tmpLightPos);
       flashlight.position.copy(tmpLightPos);
       flashlightTarget.position.set(tmpLightPos.x, tmpLightPos.y, tmpLightPos.z - 6);
@@ -558,7 +637,7 @@ function animate() {
     }
   }
 
-  renderer.render(scene, camera);
+  renderFrame();
 }
 
 animate();

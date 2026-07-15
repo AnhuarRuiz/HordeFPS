@@ -75,6 +75,8 @@ export class Rifle {
   private switchOffset = 0;
   private aiming = false;
   private aimAmount = 0;
+  private mantleStrength = 0;
+  private mantlePhase = 0;
 
   private mountedLight!: THREE.Group;
   private mountEmitter!: THREE.Object3D;
@@ -344,6 +346,16 @@ export class Rifle {
     this.aiming = aiming;
   }
 
+  // Climbing a ledge with the rifle still shouldered — you keep it in hand and
+  // just scramble up. The gun dips and rolls in with a single smooth heave (the
+  // muzzle tips up out of the way), you can't fire, but the mounted flashlight
+  // stays lit and rides along. `strength` 0→1 fades it in/out; `phase` 0→1 is
+  // the climb progress driving the heave.
+  setMantleOffset(strength: number, phase: number) {
+    this.mantleStrength = strength;
+    this.mantlePhase = phase;
+  }
+
   addReserveAmmo(amount: number) {
     this.reserveAmmo = Math.min(MAX_RESERVE, this.reserveAmmo + amount);
   }
@@ -578,6 +590,20 @@ export class Rifle {
       this.viewModel.position.z -= this.switchOffset * SWITCH_PULL;
       this.viewModel.rotation.x += this.switchOffset * SWITCH_TILT;
       this.viewModel.rotation.z += this.switchOffset * SWITCH_ROLL;
+    }
+
+    // Climb sway (rifle kept in hand while mantling): a SINGLE smooth heave over
+    // the whole climb — the gun eases down and rolls in toward the body as you
+    // haul up, tips its muzzle up out of the way, and settles back. Layered last
+    // so it reads over whatever pose the frame settled into.
+    if (this.mantleStrength > 0.001) {
+      const s = this.mantleStrength;
+      const heave = Math.sin(Math.max(0, Math.min(1, this.mantlePhase)) * Math.PI); // 0→1→0, one hump
+      this.viewModel.position.y -= s * (0.05 + 0.1 * heave);
+      this.viewModel.position.x += s * 0.05 * heave;
+      this.viewModel.position.z -= s * 0.05 * heave;
+      this.viewModel.rotation.x += s * (0.12 + 0.13 * heave);
+      this.viewModel.rotation.z += s * 0.12 * heave;
     }
   }
 }

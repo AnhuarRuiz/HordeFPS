@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildForearmHand, makeOverlayViewmodel } from './Hand.ts';
+import { buildForearmHand, markViewmodel } from './Hand.ts';
 
 // Radians/sec the stroke phase advances at while crawling — one full 2*PI cycle
 // is one left-right reach pair.
@@ -40,16 +40,21 @@ export class CrawlArms {
     this.group.add(leftWrapper);
 
     // Centred lights so both mirrored hands are lit roughly equally in the dark.
-    const fillLight = new THREE.PointLight(0xfff2e0, 1.7, 4.5);
+    // Modest intensity so the sleeves don't blow out into pale slabs.
+    const fillLight = new THREE.PointLight(0xffe9cf, 1.15, 4.5);
     fillLight.position.set(0, 0.35 / SCALE, 0.5 / SCALE);
     this.group.add(fillLight);
 
-    const rimLight = new THREE.PointLight(0x9db4d0, 0.7, 4.5);
+    const rimLight = new THREE.PointLight(0x9db4d0, 0.5, 4.5);
     rimLight.position.set(0, 0.12 / SCALE, -0.5 / SCALE);
     this.group.add(rimLight);
 
-    makeOverlayViewmodel(this.group);
+    markViewmodel(this.group);
     camera.add(this.group);
+  }
+
+  get visible(): boolean {
+    return this.group.visible;
   }
 
   // One forearm+hand, pitched down so the palm rests flat on the ground ahead

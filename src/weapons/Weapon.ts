@@ -82,6 +82,8 @@ export class Weapon {
   private switchOffset = 0;
   private aiming = false;
   private aimAmount = 0;
+  private mantleStrength = 0;
+  private mantlePhase = 0;
 
   constructor(camera: THREE.PerspectiveCamera) {
     this.camera = camera;
@@ -302,6 +304,16 @@ export class Weapon {
   // 0 = fully drawn, 1 = fully holstered (dropped and tilted off screen).
   setSwitchOffset(offset: number) {
     this.switchOffset = offset;
+  }
+
+  // Climbing a ledge with the pistol still in hand — small enough to keep it
+  // out. The gun dips and bobs as the arms scramble up, and it tilts up out of
+  // the way; you can't fire (main.ts blocks it) but the flashlight stays lit and
+  // rides along. `strength` 0→1 eases the sway in/out; `phase` 0→1 is the climb
+  // progress that drives the bob.
+  setMantleOffset(strength: number, phase: number) {
+    this.mantleStrength = strength;
+    this.mantlePhase = phase;
   }
 
   setAiming(aiming: boolean) {
@@ -564,6 +576,21 @@ export class Weapon {
       this.viewModel.position.z -= this.switchOffset * SWITCH_PULL;
       this.viewModel.rotation.x += this.switchOffset * SWITCH_TILT;
       this.viewModel.rotation.z += this.switchOffset * SWITCH_ROLL;
+    }
+
+    // Climb sway (pistol kept in hand while mantling). A SINGLE smooth heave over
+    // the whole climb — not the multi-cycle sine the first version used, which
+    // made the gun jitter/tremble. The gun eases down and rolls in toward the
+    // body as you haul up, tilts its muzzle up out of the way, and settles back;
+    // `s` (strength) fades the whole thing in and out so it never pops.
+    if (this.mantleStrength > 0.001) {
+      const s = this.mantleStrength;
+      const heave = Math.sin(Math.max(0, Math.min(1, this.mantlePhase)) * Math.PI); // 0→1→0, one hump
+      this.viewModel.position.y -= s * (0.05 + 0.1 * heave);
+      this.viewModel.position.x += s * 0.045 * heave;
+      this.viewModel.position.z -= s * 0.05 * heave;
+      this.viewModel.rotation.x += s * (0.14 + 0.14 * heave);
+      this.viewModel.rotation.z += s * 0.14 * heave;
     }
   }
 }

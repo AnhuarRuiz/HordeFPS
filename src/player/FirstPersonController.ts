@@ -27,14 +27,17 @@ const MAX_MANTLE = 2.0;
 // How far past the player's own radius a ledge can be and still get grabbed.
 const MANTLE_REACH = 0.5;
 
-// Accelerates in, eases out — used for the rising phase of a mantle.
-function easeOutCubic(t: number): number {
-  return 1 - Math.pow(1 - t, 3);
-}
-
 // Smooth both ends — used for the forward pull onto a ledge.
 function easeInOutCubic(t: number): number {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+// Ken Perlin's smootherstep: like smoothstep but with zero 1st AND 2nd
+// derivatives at both ends, so motion eases in and out with no visible kink —
+// what the mantle's vertical heave rides for a fluid accelerate-then-settle.
+function smootherstep(t: number): number {
+  const x = Math.max(0, Math.min(1, t));
+  return x * x * x * (x * (x * 6 - 15) + 10);
 }
 
 export class FirstPersonController {
@@ -342,7 +345,9 @@ export class FirstPersonController {
     const rise = best.top! - this.feetY;
     this.mantling = true;
     this.mantleTimer = 0;
-    this.mantleDuration = Math.min(0.72, 0.36 + rise * 0.16);
+    // A touch longer than before so the climb has weight and reads as a
+    // deliberate haul rather than a hop.
+    this.mantleDuration = Math.min(0.9, 0.55 + rise * 0.14);
     this.mantleStart.set(px, this.feetY, pz);
     this.mantleTarget.set(targetX, best.top!, targetZ);
     this.velocity.set(0, 0);
@@ -356,30 +361,39 @@ export class FirstPersonController {
     this.mantleTimer += dt;
     const t = Math.min(1, this.mantleTimer / this.mantleDuration);
 
-    // Rise first (feet lift to clear the lip), then pull forward onto the top —
-    // the phases overlap so it reads as one continuous climb, not two moves.
-    const up = easeOutCubic(Math.min(1, t / 0.6));
-    const fwd = easeInOutCubic(Math.max(0, Math.min(1, (t - 0.32) / 0.68)));
+    // Vertical heave is the main motion: smootherstep gives a fluid
+    // accelerate-into-the-pull, decelerate-into-the-settle with no kink at
+    // either end. Forward drift happens mostly in the back half, as the head
+    // comes up and over the lip — so you rise first, then plant onto the top.
+    const up = smootherstep(t);
+    const fwd = easeInOutCubic(Math.max(0, Math.min(1, (t - 0.22) / 0.78)));
 
     const x = THREE.MathUtils.lerp(this.mantleStart.x, this.mantleTarget.x, fwd);
     const z = THREE.MathUtils.lerp(this.mantleStart.z, this.mantleTarget.z, fwd);
     this.feetY = THREE.MathUtils.lerp(this.mantleStart.y, this.mantleTarget.y, up);
     this.position.set(x, z);
 
-    // A little look-up through the middle of the climb, easing back level as we
-    // crest the lip — sells the head lifting to see over the ledge.
-    const lookOffset = Math.sin(t * Math.PI) * 0.14;
+    // Camera juice, all single smooth humps so nothing shakes:
+    //  - look up over the lip and ease back level (arc),
+    //  - lean slightly into the climb (roll),
+    //  - a small head-dip-and-recover as you crest and plant (settle bob).
+    const arc = Math.sin(t * Math.PI);
+    const pitchOffset = 0.12 * arc;
+    const rollOffset = 0.035 * arc;
+    const settle = t > 0.72 ? Math.sin(((t - 0.72) / 0.28) * Math.PI) : 0;
+    const eyeBob = -0.04 * settle;
+
     const targetEyeHeight = this.prone ? PRONE_EYE_HEIGHT : EYE_HEIGHT;
     this.eyeHeight += (targetEyeHeight - this.eyeHeight) * Math.min(1, STANCE_LERP_RATE * dt);
-    this.camera.position.set(x, this.feetY + this.eyeHeight, z);
-    this.camera.rotation.y = this.yaw;
-    this.camera.rotation.x = this.pitch + lookOffset;
+    this.camera.position.set(x, this.feetY + this.eyeHeight + eyeBob, z);
+    this.camera.rotation.set(this.pitch + pitchOffset, this.yaw, rollOffset);
 
     if (t >= 1) {
       this.mantling = false;
       this.grounded = true;
       this.verticalVelocity = 0;
       this.feetY = this.mantleTarget.y;
+      this.camera.rotation.set(this.pitch, this.yaw, 0);
     }
   }
 }
